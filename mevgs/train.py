@@ -132,15 +132,15 @@ def setup_data(*, num_workers, batch_size, **kwargs_ds):
         "collate_fn": collate_nested,
     }
 
-    train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl)
+    train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl, shuffle=True)
     valid_dataloader = idist.auto_dataloader(valid_dataset, **kwargs_dl)
 
     return train_dataloader, valid_dataloader
 
 
-def setup_data_paired_test(*, num_workers, batch_size):
-    dataset_ff = PairedTestDataset("familiar-familiar")
-    dataset_nf = PairedTestDataset("novel-familiar")
+def setup_data_paired_test(*, num_workers, batch_size, feature_type):
+    dataset_ff = PairedTestDataset(feature_type, "familiar-familiar")
+    dataset_nf = PairedTestDataset(feature_type, "novel-familiar")
 
     dataloader_ff = idist.auto_dataloader(
         dataset_ff,
@@ -171,7 +171,9 @@ def train(local_rank, config_name: str):
     world_size = idist.get_world_size()
     dataloader_train, dataloader_valid = setup_data(**config["data"])
     dataloader_ff, dataloader_nf = setup_data_paired_test(
-        batch_size=world_size * 16, num_workers=4
+        batch_size=world_size * 16,
+        num_workers=4,
+        feature_type=config["data"]["feature_type"],
     )
 
     device = config["device"]

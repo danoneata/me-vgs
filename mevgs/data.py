@@ -5,6 +5,7 @@ import json
 import random
 import pdb
 
+import h5py
 import librosa
 import numpy as np
 import scipy
@@ -154,6 +155,20 @@ def load_audio(datum: dict):
     return torch.tensor(logspec)
 
 
+class AudioFeaturesLoader:
+    def __init__(self, feature_type, split, langs):
+        langs = "_".join(langs)
+        path = f"output/features/me-dataset-{split}-{langs}-{feature_type}.h5"
+        self.file = h5py.File(path, "r")
+
+    def __call__(self, datum):
+        name = datum["name"]
+        data = np.array(self.file[name]["feature"])
+        data = data.T
+        # D × T
+        return torch.tensor(data)
+
+
 def group_by_word(data):
     get_word = lambda datum: datum["word-en"]
     data1 = sorted(data, key=get_word)
@@ -186,8 +201,9 @@ class PairedMEDataset(Dataset):
         langs,
         num_pos: int,
         num_neg: int,
+        feature_type,
         # num_word_repeats: int,
-        to_shuffle: bool = False,
+        to_fix_validation_samples: bool = True,
     ):
         super(PairedMEDataset).__init__()
 
@@ -209,18 +225,16 @@ class PairedMEDataset(Dataset):
             for audio in audios
         ]
         self.word_audio = sorted(self.word_audio, key=lambda x: x[0])
+        self.load_audio = AudioFeaturesLoader(feature_type, split, langs)
 
-        if to_shuffle and split == "train":
-            random.shuffle(self.word_audio)
+        if split == "valid" and to_fix_validation_samples:
+            suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
+            path = f"data/filelists/validation-samples-{suffix}.json"
+            with open(path, "r") as f:
+                validation_samples = json.load(f)
+            self.get_positives_and_negatives = lambda i: validation_samples[i]
 
-    def __getitem__(self, i):
-        # worker_info = torch.utils.data.get_worker_info()
-        # print("worker:", worker_info.id)
-        # print("index: ", i)
-        # print()
-
-        transform_image = TRANSFORM_IMAGE[self.split]
-
+    def get_positives_and_negatives(self, i):
         def sample_neg(data, word):
             words = set(self.dataset.words_seen) - set([word])
             words = random.choices(list(words), k=self.n_neg)
@@ -231,27 +245,47 @@ class PairedMEDataset(Dataset):
         audios_pos = random.choices(self.dataset.word_to_audios[word], k=self.n_pos - 1)
         audios_pos = [audio_pos] + audios_pos
 
+        images_neg = sample_neg(self.dataset.word_to_images, word)
+        audios_neg = sample_neg(self.dataset.word_to_audios, word)
+
+        return {
+            "audios-pos": audios_pos,
+            "audios-neg": audios_neg,
+            "images-pos": images_pos,
+            "images-neg": images_neg,
+        }
+
+    def __getitem__(self, i):
+        # worker_info = torch.utils.data.get_worker_info()
+        # print("worker:", worker_info.id)
+        # print("index: ", i)
+        # print()
+
+        transform_image = TRANSFORM_IMAGE[self.split]
+        samples = self.get_positives_and_negatives(i)
+
         data_pos = [
             {
                 "index": i,
-                "audio": load_audio(audio_name),
+                "audio": self.load_audio(audio_name),
                 "image": load_image(image_name, transform_image),
                 "label": 1,
             }
-            for image_name, audio_name in zip(images_pos, audios_pos)
+            for image_name, audio_name in zip(
+                samples["images-pos"], samples["audios-pos"]
+            )
         ]
-
-        images_neg = sample_neg(self.dataset.word_to_images, word)
-        audios_neg = sample_neg(self.dataset.word_to_audios, word)
 
         data_neg = [
             {
                 "index": i,
-                "audio": load_audio(audio_name),
+                "audio": self.load_audio(audio_name),
                 "image": load_image(image_name, transform_image),
                 "label": 0,
             }
-            for image_name, audio_name in zip(images_neg, audios_neg)
+            for image_name, audio_name in zip(
+                samples["images-neg"], samples["audios-neg"]
+            )
         ]
 
         return data_pos + data_neg
@@ -261,9 +295,13 @@ class PairedMEDataset(Dataset):
 
 
 class PairedTestDataset(Dataset):
-    def __init__(self, test_name):
+    def __init__(self, feature_type, test_name):
         # assert test_name in {"familiar-familiar", "novel-familiar"}
         super(PairedTestDataset).__init__()
+
+        split = "test"
+        langs = ("english",)
+        self.load_audio = AudioFeaturesLoader(feature_type, split, langs)
 
         with open(f"data/filelists/{test_name}-test.json", "r") as f:
             self.data_pairs = json.load(f)
@@ -273,14 +311,13 @@ class PairedTestDataset(Dataset):
         assert datum["audio"]["word-en"] == datum["image-pos"]["word-en"]
         assert datum["audio"]["word-en"] != datum["image-neg"]["word-en"]
         return {
-            "audio": load_audio(datum["audio"]),
+            "audio": self.load_audio(datum["audio"]),
             "image-pos": load_image(datum["image-pos"]),
             "image-neg": load_image(datum["image-neg"]),
         }
 
     def __len__(self):
         return len(self.data_pairs)
-
 
 
 def collate_with_audio(batch):
@@ -308,7 +345,7 @@ if __name__ == "__main__":
         langs=("english",),
         num_pos=num_pos,
         num_neg=num_neg,
-        # num_word_repeats=5,
+        feature_type="wavlm-base-plus",
     )
     dataloader = DataLoader(
         dataset,

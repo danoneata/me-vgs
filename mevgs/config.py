@@ -529,4 +529,37 @@ CONFIGS = {
             },
         },
     },
+    "17": {
+        "seed": 42,
+        "device": "cuda",
+        "max_epochs": 34,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type": "wavlm-base-plus",
+            "langs": ("english",),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 16,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "mattnet",
+            "pooling": "features-avg",
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "output_dim": 2048,
+            },
+            "image_encoder_kwargs": {
+                "embedding_dim": 2048,
+                "use_pretrained_alexnet": True,
+            },
+        },
+    },
 }

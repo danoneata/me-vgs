@@ -37,7 +37,7 @@ AUDIO_POOLING_LAYERS = {
 }
 
 
-class AudioEncoder(nn.Module):
+class AudioEncoderLeanne(nn.Module):
     def __init__(
         self,
         *,
@@ -52,7 +52,7 @@ class AudioEncoder(nn.Module):
         use_pretrained_cpc=False,
         pooling_layer="two-layer-mlp",
     ):
-        super(AudioEncoder, self).__init__()
+        super(AudioEncoderLeanne, self).__init__()
 
         self.conv = nn.Conv1d(
             in_channels,
@@ -155,6 +155,37 @@ class AudioEncoder(nn.Module):
         return s
 
 
+class AudioEncoderTransformer(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(AudioEncoderTransformer, self).__init__()
+        self.layer = nn.TransformerEncoderLayer(
+            d_model=input_dim,
+            nhead=8,
+            dim_feedforward=2048,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(self.layer, num_layers=1)
+        self.up = nn.Linear(input_dim, output_dim)
+
+    def forward(self, x, lengths):
+        # x: B × D × T
+        x = x.permute(0, 2, 1)
+        B, T, _ = x.shape
+        mask = torch.arange(T).expand(B, -1).to(x.device)
+        mask = mask >= lengths.unsqueeze(1)
+        out = self.encoder(x, src_key_padding_mask=mask)
+        out = out[:, 0]
+        out = self.up(out)
+        return out.unsqueeze(-1)  # B × output_dim × 1
+
+
+AUDIO_ENCODERS = {
+    "leanne": AudioEncoderLeanne,
+    "transformer": AudioEncoderTransformer,
+}
+
+
 # class AudioEncoder(nn.Module):
 #     def __init__(
 #         self,
@@ -247,7 +278,8 @@ class MattNet(nn.Module):
             "features-avg": self.score_emb_pool_features_avg,
             "scores-max": self.score_emb_pool_scores_max,
         }
-        self.audio_enc = AudioEncoder(**audio_encoder_kwargs)
+        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](**audio_encoder_kwargs)
         self.image_enc = ImageEncoder(**image_encoder_kwargs)
         self.score_emb = SCORE_EMB_FUNCS[pooling]
         # self.logit_scale = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))

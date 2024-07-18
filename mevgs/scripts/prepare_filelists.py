@@ -8,7 +8,7 @@ import numpy as np
 
 from toolz import first
 
-from mevgs.data import load_dictionary, MEDataset
+from mevgs.data import load_dictionary, MEDataset, PairedMEDataset
 
 
 random.seed(42)
@@ -281,6 +281,15 @@ def extract_filelists_from_leanne():
         json.dump(data_nf, f, indent=2)
 
 
+def prepare_validation_samples(langs, num_pos, num_neg):
+    # Fix the validation samples to ensure comparable results across runs.
+    dataset = PairedMEDataset("valid", langs, num_pos, num_neg, to_fix_validation_samples=False)
+    samples = [dataset.get_positives_and_negatives(i) for i in range(len(dataset))]
+    suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
+    with open(f"data/filelists/validation-samples-{suffix}.json", "w") as f:
+        json.dump(samples, f, indent=2)
+
+
 if __name__ == "__main__":
     # prepare_audio_filelist("train")
     # prepare_audio_filelist("valid")
@@ -288,4 +297,5 @@ if __name__ == "__main__":
     # prepare_image_filelist("valid")
     # prepare_familiar_familiar("test", 10)
     # prepare_novel_familiar(10)
-    extract_filelists_from_leanne()
+    # extract_filelists_from_leanne()
+    prepare_validation_samples(("english", ), 1, 11)
