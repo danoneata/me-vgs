@@ -22,14 +22,14 @@ from ignite.handlers.tensorboard_logger import (
     global_step_from_engine,
 )
 
-from mymme.config import CONFIGS
-from mymme.data import (
+from mevgs.config import CONFIGS
+from mevgs.data import (
     collate_nested,
     collate_with_audio,
     PairedMEDataset,
     PairedTestDataset,
 )
-from mymme.model import setup_model
+from mevgs.model import setup_model
 
 
 def identity_loss(loss, _):

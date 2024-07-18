@@ -4,7 +4,7 @@ import streamlit as st
 from PIL import Image
 from torchvision import transforms as T
 
-from mymme.data import MEDataset, get_image_path, transform_image_train_1
+from mevgs.data import MEDataset, get_image_path, transform_image_train_1
 
 
 dataset = MEDataset("train", ("english",))

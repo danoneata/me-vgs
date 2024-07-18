@@ -11,8 +11,8 @@ import torch
 
 from torch.utils.data import DataLoader
 
-from mymme.train import CONFIGS, setup_model, UtilsPairedTest
-from mymme.data import (
+from mevgs.train import CONFIGS, setup_model, UtilsPairedTest
+from mevgs.data import (
     PairedMEDataset,
     PairedTestDataset,
     collate_with_audio,
@@ -153,7 +153,7 @@ def evaluate_model_batched(test_name, model, device):
 
 
 def evaluate_model(test_name, model, device):
-    with open(f"mymme/data/filelists/{test_name}-test.json", "r") as f:
+    with open(f"data/filelists/{test_name}-test.json", "r") as f:
         data_pairs = json.load(f)
 
     results = [score_pair(model, datum, device) for datum in tqdm(data_pairs)]
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     model = MODELS[model_name]()
     model.to(DEVICE)
 
-    with open(f"mymme/data/filelists/{test_name}-test.json") as f:
+    with open(f"data/filelists/{test_name}-test.json") as f:
         data_pairs = json.load(f)
 
     results = [score_pair(model, datum, DEVICE) for datum in tqdm(data_pairs)]

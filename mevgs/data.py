@@ -18,7 +18,7 @@ from PIL import Image
 from torchvision import transforms as T
 
 from toolz import concat, dissoc
-from mymme.utils import read_file, read_json
+from mevgs.utils import read_file, read_json
 
 
 Split = Literal["train", "valid", "test"]
@@ -34,7 +34,7 @@ def load_dictionary():
             "french": fr,
         }
 
-    return read_file("mymme/data/concepts.txt", parse_line)
+    return read_file("data/concepts.txt", parse_line)
 
 
 IMAGE_SIZE = 256
@@ -165,11 +165,11 @@ class MEDataset:
         self.split = split
         self.langs = langs
 
-        self.words_seen = read_file("mymme/data/words-seen.txt")
-        self.words_unseen = read_file("mymme/data/words-unseen.txt")
+        self.words_seen = read_file("data/words-seen.txt")
+        self.words_unseen = read_file("data/words-unseen.txt")
 
-        image_files = read_json(f"mymme/data/filelists/image-{split}.json")
-        audio_files = read_json(f"mymme/data/filelists/audio-{split}.json")
+        image_files = read_json(f"data/filelists/image-{split}.json")
+        audio_files = read_json(f"data/filelists/audio-{split}.json")
         audio_files = [datum for datum in audio_files if datum["lang"] in langs]
 
         self.image_files = image_files
@@ -265,7 +265,7 @@ class PairedTestDataset(Dataset):
         # assert test_name in {"familiar-familiar", "novel-familiar"}
         super(PairedTestDataset).__init__()
 
-        with open(f"mymme/data/filelists/{test_name}-test.json", "r") as f:
+        with open(f"data/filelists/{test_name}-test.json", "r") as f:
             self.data_pairs = json.load(f)
 
     def __getitem__(self, index: int):

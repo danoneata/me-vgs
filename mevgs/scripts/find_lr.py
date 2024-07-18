@@ -1,8 +1,8 @@
-import os
+import sys
 from torch import optim
 from ignite.handlers import FastaiLRFinder
 from ignite.engine import create_supervised_trainer
-from mymme.train import (
+from mevgs.train import (
     CONFIGS,
     identity_loss,
     model_fn,
@@ -10,6 +10,9 @@ from mymme.train import (
     setup_data,
     setup_model,
 )
+
+config_name = sys.argv[1]
+config = CONFIGS[config_name]
 
 device = config["device"]
 model = setup_model(**config["model"])

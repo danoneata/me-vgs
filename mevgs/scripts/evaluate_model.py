@@ -1,5 +1,5 @@
 import sys
-from mymme.predict import MODELS, evaluate_model, evaluate_model_batched
+from mevgs.predict import MODELS, evaluate_model, evaluate_model_batched
 
 model_name = sys.argv[1]
 

@@ -8,7 +8,7 @@ import numpy as np
 
 from toolz import first
 
-from mymme.data import load_dictionary, MEDataset
+from mevgs.data import load_dictionary, MEDataset
 
 
 random.seed(42)
@@ -31,7 +31,7 @@ def load_data(split):
 
 def save_data(data, modality, split):
     data = deduplicate(data)
-    path_out = f"mymme/data/filelists/{modality}-{split}.json"
+    path_out = f"data/filelists/{modality}-{split}.json"
     with open(path_out, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -180,7 +180,7 @@ def prepare_familiar_familiar(split, num_word_repeat):
         sample_pair(word) for word in dataset.words_seen for _ in range(num_word_repeat)
     ]
 
-    with open(f"mymme/data/filelists/familiar-familiar-{split}.json", "w") as f:
+    with open(f"data/filelists/familiar-familiar-{split}.json", "w") as f:
         json.dump(data, f, indent=2)
 
 
@@ -216,7 +216,7 @@ def prepare_novel_familiar(num_word_repeat):
         for _ in range(num_word_repeat)
     ]
 
-    with open(f"mymme/data/filelists/novel-familiar-{split}.json", "w") as f:
+    with open(f"data/filelists/novel-familiar-{split}.json", "w") as f:
         json.dump(data, f, indent=2)
 
 
@@ -274,10 +274,10 @@ def extract_filelists_from_leanne():
         and datum["image-neg"]["word-en"] in dataset.words_seen
     ]
 
-    with open("mymme/data/filelists/leanne-familiar-familiar-test.json", "w") as f:
+    with open("data/filelists/leanne-familiar-familiar-test.json", "w") as f:
         json.dump(data_ff, f, indent=2)
 
-    with open("mymme/data/filelists/leanne-novel-familiar-test.json", "w") as f:
+    with open("data/filelists/leanne-novel-familiar-test.json", "w") as f:
         json.dump(data_nf, f, indent=2)
 
 

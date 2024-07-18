@@ -104,7 +104,7 @@ class AudioEncoder(nn.Module):
                 return ".".join(rest)
 
             print("Using pretrained CPC")
-            path = "mymme/checkpoints/audio-model-cpc-epoch-1500.pt"
+            path = "checkpoints/audio-model-cpc-epoch-1500.pt"
             model_weights = torch.load(path)
             model_weights = model_weights["acoustic_model"]
             model_weights = {
@@ -221,7 +221,7 @@ class ImageEncoder(nn.Module):
 
         if use_pretrained_alexnet:
             print("Using pretrained AlexNet")
-            path = "mymme/checkpoints/alexnet-self-supervised.pth"
+            path = "checkpoints/alexnet-self-supervised.pth"
             model_weights = torch.load(path, map_location="cpu")
             model_dict = self.image_model.state_dict()
             for key in model_weights["model"]:
