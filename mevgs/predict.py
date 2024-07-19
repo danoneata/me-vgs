@@ -129,8 +129,8 @@ def score_pair(model, datum, device):
     }
 
 
-def evaluate_model_batched(test_name, model, device):
-    dataset = PairedTestDataset(test_name)
+def evaluate_model_batched(feature_type, test_name, model, device):
+    dataset = PairedTestDataset(feature_type, test_name)
     dataloader = DataLoader(
         dataset,
         batch_size=128,

@@ -1,11 +1,14 @@
 import sys
-from mevgs.predict import MODELS, evaluate_model, evaluate_model_batched
+from mevgs.predict import CONFIGS, MODELS, evaluate_model_batched
 
 model_name = sys.argv[1]
 
 DEVICE = "cuda"
 model = MODELS[model_name]()
 model.to(DEVICE)
+
+config = CONFIGS[model_name]
+feature_type = config["data"]["feature_type"]
 
 TESTS = [
     "familiar-familiar",
@@ -18,7 +21,7 @@ results = []
 for test_name in TESTS:
     print(test_name)
     # accuracy = evaluate_model(test_name, model, DEVICE)
-    accuracy = evaluate_model_batched(test_name, model, DEVICE)
+    accuracy = evaluate_model_batched(feature_type, test_name, model, DEVICE)
     print(accuracy)
     results.append(accuracy)
 
