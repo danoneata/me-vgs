@@ -155,9 +155,15 @@ class AudioEncoderLeanne(nn.Module):
         return s
 
 
+def _expand_token(token, batch_size: int):
+    return token.view(1, 1, -1).expand(batch_size, -1, -1)
+
+
 class AudioEncoderTransformer(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(AudioEncoderTransformer, self).__init__()
+        scale = input_dim ** -0.5
+        self.class_embedding = nn.Parameter(scale * torch.randn(input_dim))
         self.layer = nn.TransformerEncoderLayer(
             d_model=input_dim,
             nhead=8,
@@ -172,8 +178,9 @@ class AudioEncoderTransformer(nn.Module):
         # x: B × D × T
         x = x.permute(0, 2, 1)
         B, T, _ = x.shape
-        mask = torch.arange(T).expand(B, -1).to(x.device)
-        mask = mask >= lengths.unsqueeze(1)
+        mask = torch.arange(1 + T).expand(B, -1).to(x.device)
+        mask = mask >= (lengths + 1).unsqueeze(1)
+        x = torch.cat([_expand_token(self.class_embedding, B), x], dim=1)
         out = self.encoder(x, src_key_padding_mask=mask)
         out = out[:, 0]
         out = self.up(out)
