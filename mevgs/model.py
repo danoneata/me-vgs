@@ -168,7 +168,7 @@ def _expand_token(token, batch_size: int):
 class AudioEncoderTransformer(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(AudioEncoderTransformer, self).__init__()
-        scale = input_dim ** -0.5
+        scale = input_dim**-0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(input_dim))
         self.layer = nn.TransformerEncoderLayer(
             d_model=input_dim,
@@ -436,8 +436,114 @@ class MattNet(nn.Module):
         return F.softmax(scores, dim=1)
 
 
+class CLIP(nn.Module):
+    def __init__(self, embed_dim, audio_encoder_kwargs, image_encoder_kwargs):
+        super(CLIP, self).__init__()
+        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
+            output_dim=embed_dim,
+            **audio_encoder_kwargs,
+        )
+        self.image_enc = ImageEncoder(
+            output_dim=embed_dim,
+            **image_encoder_kwargs,
+        )
+        self.logit_scale = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))
+
+    def l2_normalize(self, x, dim):
+        return x / x.norm(dim=dim, keepdim=True)
+
+    def score_emb(self, audio_emb, image_emb, type):
+        EINSUM_OP = {
+            "pair": "bd,bd->b",
+            "cross": "xd,yd->xy",
+            "pair-and-cross": "bnd,bmd->bnm",
+        }
+        audio_emb = audio_emb.mean(dim=-1)
+        audio_emb = self.l2_normalize(audio_emb, dim=-1)
+
+        image_emb = image_emb.mean(dim=-1)
+        image_emb = self.l2_normalize(image_emb, dim=-1)
+
+        sim = torch.einsum(EINSUM_OP[type], audio_emb, image_emb)
+        τ = torch.maximum(self.logit_scale.exp(), torch.tensor(100.0))
+        # τ = 1
+
+        return τ * sim
+
+    def score(self, audio, audio_length, image, type):
+        audio_emb = self.audio_enc(audio, audio_length)
+        image_emb = self.image_enc(image)
+        return self.score_emb(audio_emb, image_emb, type)
+
+    def compute_loss(self, audio, audio_length, image, labels):
+        """Input shapes:
+
+        - audio:        B × (pos + neg) × D × T
+        - audio_length: B × (pos + neg)
+        - image:        B × (pos + neg) × 3 × H × W
+        - labels:       B × (pos + neg)
+
+        Currently, we assume that there is a single positive: pos = 1.
+
+        """
+
+        B1, N1, *_ = audio.shape
+        B2, N2, *_ = image.shape
+
+        assert B1 == B2 and N1 == N2
+        B = B1
+        N = N1
+
+        audio = audio.view(B * N, *audio.shape[2:])
+        audio_length = audio_length.view(B * N)
+        audio_emb = self.audio_enc(audio, audio_length)
+        audio_emb = audio_emb.view(B, N, *audio_emb.shape[1:])
+
+        image = image.view(B * N, *image.shape[2:])
+        image_emb = self.image_enc(image)
+        image_emb = image_emb.view(B, N, *image_emb.shape[1:])
+
+        # assume one positive per batch and all positives are in first position
+        assert labels.sum() == B
+        assert labels[:, 0].sum() == B
+        assert labels[:, 1:].sum() == 0
+        # assert labels == torch.cat([torch.ones(B, 1), torch.zeros(B, N - 1)], dim=1)
+
+        sim1 = self.score_emb(audio_emb[:, :1], image_emb, "pair-and-cross")
+        sim1 = sim1.squeeze(1)
+        sim2 = self.score_emb(audio_emb, image_emb[:, :1], "pair-and-cross")
+        sim2 = sim2.squeeze(2)
+
+        pred = torch.cat([sim1, sim2], dim=0)
+
+        true = torch.zeros(2 * B).to(labels.device).long()
+        return F.cross_entropy(pred, true)
+
+    def predict_paired_test(self, audio, audio_length, image_pos, image_neg):
+        """Input shapes:
+
+        - audio:        B × D × T
+        - audio_length: B
+        - image-pos:    B × 3 × H × W
+        - image-neg:    B × 3 × H × W
+
+        """
+        audio_emb = self.audio_enc(audio, audio_length)
+
+        image_pos_emb = self.image_enc(image_pos)
+        image_neg_emb = self.image_enc(image_neg)
+
+        scores_pos = self.score_emb(audio_emb, image_pos_emb, type="pair")
+        scores_neg = self.score_emb(audio_emb, image_neg_emb, type="pair")
+
+        scores = torch.stack([scores_pos, scores_neg], dim=1)
+        return F.softmax(scores, dim=1)
+
+
 MODELS = {
     "mattnet": MattNet,
+    "clip": CLIP,
 }
 
 
