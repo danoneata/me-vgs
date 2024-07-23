@@ -628,4 +628,102 @@ CONFIGS = {
             },
         },
     },
+    "20": {
+        "seed": 42,
+        "device": "cuda",
+        "max_epochs": 34,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 8e-5,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type": "wavlm-base-plus",
+            "langs": ("english",),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 16,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "mattnet",
+            "embed_dim": 2048,
+            "pooling": "features-avg",
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+            },
+            "image_encoder_kwargs": {
+                "use_pretrained_alexnet": True,
+                "to_freeze_backbone": True,
+            },
+        },
+    },
+    "21": {
+        "seed": 42,
+        "device": "cuda",
+        "max_epochs": 34,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 8e-5,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type": "wavlm-base-plus",
+            "langs": ("english",),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 16,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 2048,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+            },
+            "image_encoder_kwargs": {
+                "use_pretrained_alexnet": True,
+                "to_freeze_backbone": True,
+            },
+        },
+    },
+    "22": {
+        "seed": 42,
+        "device": "cuda",
+        "max_epochs": 34,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type": "wavlm-base-plus",
+            "langs": ("english",),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 16,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 2048,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+            },
+            "image_encoder_kwargs": {
+                "backbone_type": "dino-resnet50",
+                "to_freeze_backbone": True,
+                "use_pretrained_backbone": True,
+            },
+        },
+    },
 }
