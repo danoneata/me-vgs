@@ -1,4 +1,7 @@
+import math
 import torch
+
+from functools import partial
 
 import torch.nn as nn
 from torch.nn import functional as F
@@ -50,6 +53,7 @@ class AudioEncoderLeanne(nn.Module):
         c_dim=512,
         frame_dim=256,
         use_pretrained_cpc=False,
+        output_dim=2048,
         pooling_layer="two-layer-mlp",
     ):
         super(AudioEncoderLeanne, self).__init__()
@@ -91,7 +95,9 @@ class AudioEncoderLeanne(nn.Module):
         self.rnn4 = nn.LSTM(c_dim, c_dim, batch_first=True)
 
         self.english_rnn1 = nn.LSTM(512, 512, batch_first=True, bidirectional=True)
-        self.english_rnn2 = nn.LSTM(1024, 1024, batch_first=True, bidirectional=True)
+        self.english_rnn2 = nn.LSTM(
+            1024, output_dim // 2, batch_first=True, bidirectional=True
+        )
         self.relu = nn.ReLU()
 
         self.pooling_layer = AUDIO_POOLING_LAYERS[pooling_layer](frame_dim=frame_dim)
@@ -193,101 +199,124 @@ AUDIO_ENCODERS = {
 }
 
 
-# class AudioEncoder(nn.Module):
-#     def __init__(
-#         self,
-#         *,
-#         in_channels,
-#         channels=[128, 128, 128],
-#         kernel_sizes=[5, 3, 3],
-#         dilations=[1, 2, 2],
-#         embedding_dim=2_048,
-#     ):
-#         super().__init__()
-#         blocks = []
-#         i = in_channels
-#         for o, k, d in zip(channels, kernel_sizes, dilations):
-#             blocks.append(self.make_block(i, o, k, d))
-#             i = o
-#
-#         self.backbone = nn.Sequential(*blocks)
-#         self.classifier = nn.Linear(
-#             in_features=channels[-1],
-#             out_features=embedding_dim,
-#         )
-#
-#     def make_block(self, in_channels, out_channels, kernel_size, dilation):
-#         return nn.Sequential(
-#             nn.Conv1d(
-#                 in_channels=in_channels,
-#                 out_channels=out_channels,
-#                 kernel_size=kernel_size,
-#                 dilation=dilation,
-#             ),
-#             nn.LeakyReLU(),
-#             nn.BatchNorm1d(num_features=out_channels),
-#         )
-#
-#     def average_pooling(self, x):
-#         return x.mean(dim=-1)
-#
-#     def forward(self, audio):
-#         # audio : B × D × T
-#         x = self.backbone(audio)
-#         x = self.average_pooling(x)
-#         x = self.classifier(x)
-#         return x.unsqueeze(-1)
+class ImageBackboneAlexNet(nn.Module):
+    def __init__(self, to_freeze=False, use_pretrained=True):
+        super(ImageBackboneAlexNet, self).__init__()
+        self.model = alexnet(pretrained=False).features
 
-
-class ImageEncoder(nn.Module):
-    def __init__(self, *, embedding_dim=2048, use_pretrained_alexnet=True):
-        super(ImageEncoder, self).__init__()
-        seed_model = alexnet(pretrained=False)
-        self.image_model = nn.Sequential(*list(seed_model.features.children()))
-
-        last_layer_index = len(list(self.image_model.children()))
-        self.image_model.add_module(
-            str(last_layer_index),
-            nn.Conv2d(
-                256,
-                embedding_dim,
-                kernel_size=(3, 3),
-                stride=(1, 1),
-                padding=(1, 1),
-            ),
-        )
-
-        if use_pretrained_alexnet:
+        if use_pretrained:
             print("Using pretrained AlexNet")
             path = "checkpoints/alexnet-self-supervised.pth"
             model_weights = torch.load(path, map_location="cpu")
-            model_dict = self.image_model.state_dict()
-            for key in model_weights["model"]:
-                if "features" in key:
-                    new_key = ".".join(key.split(".")[2:])
-                    model_dict[new_key] = model_weights["model"][key]
-            self.image_model.load_state_dict(model_dict)
 
-        # for name, param in self.image_model.named_parameters():
-        #     if "features" in name:
-        #         param.requires_grad = False
+            fmt_key = lambda key: ".".join(key.split(".")[2:])
+            model_dict = {
+                fmt_key(k): v
+                for k, v in model_weights["model"].items()
+                if k.split(".")[1] == "features"
+            }
+            self.model.load_state_dict(model_dict)
+
+        if to_freeze:
+            assert use_pretrained
+            for _, param in self.model.named_parameters():
+                param.requires_grad = False
 
     def forward(self, x):
-        x = self.image_model(x)
-        x = x.view(x.size(0), x.size(1), -1)
-        return x
+        return self.model(x)
+
+
+class ImageBackboneDINO(nn.Module):
+    def __init__(self, type_, to_freeze=False, use_pretrained=True):
+        assert type_ == "resnet50"
+        super(ImageBackboneDINO, self).__init__()
+
+        self.model = torch.hub.load(
+            "facebookresearch/dino:main",
+            "dino_" + type_,
+            pretrained=use_pretrained,
+        )
+        self.model = nn.Sequential(*list(self.model.children())[:-2])
+
+        if to_freeze:
+            assert use_pretrained
+            for _, param in self.model.named_parameters():
+                param.requires_grad = False
+
+    def forward(self, x):
+        return self.model(x)
+
+
+IMAGE_BACKBONES = {
+    "alexnet": ImageBackboneAlexNet,
+    "dino-resnet50": partial(ImageBackboneDINO, type_="resnet50"),
+}
+
+
+IMAGE_BACKBONE_FEATURE_DIM = {
+    "alexnet": 256,
+    "dino-resnet50": 2048,
+}
+
+
+class ImageEncoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        output_dim,
+        backbone_type,
+        to_freeze_backbone,
+        use_pretrained_backbone,
+    ):
+        super(ImageEncoder, self).__init__()
+        self.feature_extractor = IMAGE_BACKBONES[backbone_type](
+            to_freeze=to_freeze_backbone,
+            use_pretrained=use_pretrained_backbone,
+        )
+
+        feature_dim = IMAGE_BACKBONE_FEATURE_DIM[backbone_type]
+        width = 256
+        self.down = nn.Linear(feature_dim, width)
+
+        scale = width**-0.5
+        self.class_embedding = nn.Parameter(scale * torch.randn(width))
+        self.layer = nn.TransformerEncoderLayer(
+            d_model=width,
+            nhead=8,
+            dim_feedforward=2048,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(self.layer, num_layers=1)
+        self.up = nn.Linear(width, output_dim)
+
+    def forward(self, x):
+        x = self.feature_extractor(x)  # B × D × W x H
+        B, D, _, _ = x.shape
+
+        x = x.view(B, D, -1)  # B × D × (WH)
+        x = x.permute(0, 2, 1)  # B × (WH) × D
+        x = self.down(x)
+
+        x = torch.cat([_expand_token(self.class_embedding, B), x], dim=1)
+        out = self.encoder(x)
+        out = out[:, 0]
+        out = self.up(out)
+        return out.unsqueeze(-1)  # B × output_dim × 1
 
 
 class MattNet(nn.Module):
-    def __init__(self, pooling, audio_encoder_kwargs, image_encoder_kwargs):
+    def __init__(self, embed_dim, pooling, audio_encoder_kwargs, image_encoder_kwargs):
         super(MattNet, self).__init__()
         SCORE_EMB_FUNCS = {
             "features-avg": self.score_emb_pool_features_avg,
             "scores-max": self.score_emb_pool_scores_max,
         }
         audio_encoder_type = audio_encoder_kwargs.pop("type")
-        self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](**audio_encoder_kwargs)
-        self.image_enc = ImageEncoder(**image_encoder_kwargs)
+        self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
+            output_dim=embed_dim, **audio_encoder_kwargs
+        )
+        self.image_enc = ImageEncoder(output_dim=embed_dim, **image_encoder_kwargs)
         self.score_emb = SCORE_EMB_FUNCS[pooling]
         # self.logit_scale = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))
 
