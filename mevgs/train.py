@@ -277,16 +277,17 @@ def train(local_rank, config_name: str):
     cycle_size = (
         num_steps_per_epoch * (config["max_epochs"] - config["warmup_epochs"]) + 1
     )
+    lr_min = 1e-6
     base_scheduler = CosineAnnealingScheduler(
         optimizer,
         "lr",
         start_value=config["optimizer"]["lr"],
-        end_value=1e-6,
+        end_value=lr_min,
         cycle_size=cycle_size,
     )
     scheduler = create_lr_scheduler_with_warmup(
         base_scheduler,
-        warmup_start_value=1e-6,
+        warmup_start_value=lr_min,
         warmup_end_value=config["optimizer"]["lr"],
         warmup_duration=warmup_duration,
     )
