@@ -86,7 +86,7 @@ class UtilsTraining:
 
     @staticmethod
     def model_fn(model, inputs):
-        return unwrap_model(model).compute_loss(*inputs)
+        return model(*inputs)
 
     @staticmethod
     def get_metrics(device):
@@ -224,25 +224,6 @@ def train(local_rank, config_name: str):
         metrics=UtilsPairedTest.get_metrics("novel-familiar", device),  # type: ignore
     )
 
-    # Model checkpoint
-    def score_func(engine):
-        return -engine.state.metrics["loss"]
-
-    model_dir = output_dir / "checkpoints"
-    handler = ModelCheckpoint(
-        model_dir,
-        n_saved=config["n_saved"],
-        create_dir=True,
-        require_empty=True,
-        score_name="neg-loss",
-        score_function=score_func,
-    )
-    evaluator.add_event_handler(
-        Events.EPOCH_COMPLETED(every=1),
-        handler,
-        {"model": unwrap_model(model)},
-    )
-
     # Early stopping
     # handler = EarlyStopping(config["patience"], score_func, trainer)
     # evaluator.add_event_handler(Events.EPOCH_COMPLETED, handler)
@@ -356,6 +337,27 @@ def train(local_rank, config_name: str):
             event_name=Events.ITERATION_STARTED,
             optimizer=optimizer,
         )
+
+    # Model checkpoint
+    def score_func(engine):
+        return -engine.state.metrics["loss"]
+
+    model_dir = output_dir / "checkpoints"
+
+    handler = ModelCheckpoint(
+        model_dir,
+        n_saved=config["n_saved"],
+        create_dir=True,
+        require_empty=True,
+        score_name="neg-loss",
+        score_function=score_func,
+        save_on_rank=0,
+    )
+    evaluator.add_event_handler(
+        Events.EPOCH_COMPLETED(every=1),
+        handler,
+        {"model": unwrap_model(model)},
+    )
 
     # Setup is done. Let's run the training.
     trainer.run(

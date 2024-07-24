@@ -39,7 +39,10 @@ def load_model(config_name, config):
     model = setup_model(**config["model"])
     folder = Path("output") / config_name
     state = torch.load(get_best_checkpoint(folder))
-    model.load_state_dict(state)
+    # state_old = model.state_dict()
+    # state_new = {k: state_old[k] if "feature_extractor" in k else state[k] for k in state.keys()}
+    state_new = state
+    model.load_state_dict(state_new)
     model.eval()
     return model
 
@@ -150,6 +153,26 @@ def evaluate_model_batched(feature_type, test_name, model, device):
     preds = torch.cat(preds, dim=0)
     is_correct = (preds[:, 0] > preds[:, 1]).float()
     return 100 * torch.mean(is_correct).item()
+
+
+def evaluate_model_ignite(feature_type, test_name, model, device):
+    from ignite.engine import create_supervised_evaluator
+    dataset = PairedTestDataset(feature_type, test_name)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=128,
+        num_workers=4,
+        collate_fn=collate_with_audio,
+    )
+    evaluator = create_supervised_evaluator(
+        model,
+        prepare_batch=UtilsPairedTest.prepare_batch_fn,
+        model_fn=UtilsPairedTest.model_fn,
+        device=device,
+        output_transform=UtilsPairedTest.output_transform,
+        metrics=UtilsPairedTest.get_metrics(test_name, device),  # type: ignore
+    )
+    return 100 * evaluator.run(dataloader).metrics[f"accuracy-{test_name}"]
 
 
 def evaluate_model(test_name, model, device):

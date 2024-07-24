@@ -373,7 +373,7 @@ class MattNet(nn.Module):
         τ = 1.0
         return τ * sim
 
-    def compute_loss(self, audio, audio_length, image, labels):
+    def forward(self, audio, audio_length, image, labels):
         """Input shapes:
 
         - audio:        B × (pos + neg) × D × T
@@ -478,7 +478,7 @@ class CLIP(nn.Module):
         image_emb = self.image_enc(image)
         return self.score_emb(audio_emb, image_emb, type)
 
-    def compute_loss(self, audio, audio_length, image, labels):
+    def forward(self, audio, audio_length, image, labels):
         """Input shapes:
 
         - audio:        B × (pos + neg) × D × T
