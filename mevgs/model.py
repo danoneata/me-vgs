@@ -165,32 +165,53 @@ def _expand_token(token, batch_size: int):
     return token.view(1, 1, -1).expand(batch_size, -1, -1)
 
 
-class AudioEncoderTransformer(nn.Module):
-    def __init__(self, input_dim, output_dim):
-        super(AudioEncoderTransformer, self).__init__()
-        scale = input_dim**-0.5
-        self.class_embedding = nn.Parameter(scale * torch.randn(input_dim))
+class TransformerPooling(nn.Module):
+    def __init__(self, input_dim, width, output_dim):
+        super(TransformerPooling, self).__init__()
+        # transformer hyperparameters
+        assert width % 64 == 0
+        nhead = width // 64
+        dim_feedforward = 4 * width
+
+        self.proj_in = nn.Linear(input_dim, width)
+        self.class_embedding = nn.Parameter(input_dim**-0.5 * torch.randn(width))
         self.layer = nn.TransformerEncoderLayer(
-            d_model=input_dim,
-            nhead=8,
-            dim_feedforward=2048,
+            d_model=width,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
             batch_first=True,
             norm_first=True,
+            activation="gelu",
         )
-        self.encoder = nn.TransformerEncoder(self.layer, num_layers=1)
-        self.up = nn.Linear(input_dim, output_dim)
+        self.ln_out = nn.LayerNorm(width)
+        self.proj_out = nn.Linear(width, output_dim, bias=False)
+
+    def forward(self, x, lengths=None):
+        # x: B × T × D
+        B, T, _ = x.shape
+        x = self.proj_in(x)
+        x = torch.cat([_expand_token(self.class_embedding, B), x], dim=1)
+        if lengths is not None:
+            mask = torch.arange(1 + T).expand(B, -1).to(x.device)
+            mask = mask >= (lengths + 1).unsqueeze(1)
+        else:
+            mask = None
+        out = self.layer(x, src_key_padding_mask=mask)
+        out = out[:, 0]
+        out = self.ln_out(out)
+        out = self.proj_out(out)
+        return out.unsqueeze(-1)
+
+
+class AudioEncoderTransformer(nn.Module):
+    def __init__(self, input_dim, width, output_dim):
+        super(AudioEncoderTransformer, self).__init__()
+        self.pool = TransformerPooling(input_dim, width, output_dim)
 
     def forward(self, x, lengths):
         # x: B × D × T
         x = x.permute(0, 2, 1)
-        B, T, _ = x.shape
-        mask = torch.arange(1 + T).expand(B, -1).to(x.device)
-        mask = mask >= (lengths + 1).unsqueeze(1)
-        x = torch.cat([_expand_token(self.class_embedding, B), x], dim=1)
-        out = self.encoder(x, src_key_padding_mask=mask)
-        out = out[:, 0]
-        out = self.up(out)
-        return out.unsqueeze(-1)  # B × output_dim × 1
+        return self.pool(x, lengths)
 
 
 AUDIO_ENCODERS = {
@@ -264,6 +285,7 @@ class ImageEncoder(nn.Module):
         self,
         *,
         output_dim,
+        width,
         backbone_type,
         to_freeze_backbone,
         use_pretrained_backbone,
@@ -274,35 +296,15 @@ class ImageEncoder(nn.Module):
             use_pretrained=use_pretrained_backbone,
         )
 
-        feature_dim = IMAGE_BACKBONE_FEATURE_DIM[backbone_type]
-        width = 256
-        self.down = nn.Linear(feature_dim, width)
-
-        scale = width**-0.5
-        self.class_embedding = nn.Parameter(scale * torch.randn(width))
-        self.layer = nn.TransformerEncoderLayer(
-            d_model=width,
-            nhead=8,
-            dim_feedforward=2048,
-            batch_first=True,
-            norm_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(self.layer, num_layers=1)
-        self.up = nn.Linear(width, output_dim)
+        input_dim = IMAGE_BACKBONE_FEATURE_DIM[backbone_type]
+        self.pool = TransformerPooling(input_dim, width, output_dim)
 
     def forward(self, x):
         x = self.feature_extractor(x)  # B × D × W x H
         B, D, _, _ = x.shape
-
         x = x.view(B, D, -1)  # B × D × (WH)
         x = x.permute(0, 2, 1)  # B × (WH) × D
-        x = self.down(x)
-
-        x = torch.cat([_expand_token(self.class_embedding, B), x], dim=1)
-        out = self.encoder(x)
-        out = out[:, 0]
-        out = self.up(out)
-        return out.unsqueeze(-1)  # B × output_dim × 1
+        return self.pool(x)
 
 
 class MattNet(nn.Module):
