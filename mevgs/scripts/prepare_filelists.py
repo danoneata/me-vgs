@@ -220,10 +220,12 @@ def prepare_novel_familiar(num_word_repeat):
         json.dump(data, f, indent=2)
 
 
-def extract_filelists_from_leanne():
+def extract_filelists_from_leanne(type_):
+    assert type_ in {"subsample", "full"}
+
     dataset = MEDataset("test", langs=("english",))
 
-    path = "mme/results/files/episode_data.npz"
+    path = "data/episode_data.npz"
     data = np.load(path, allow_pickle=True)
 
     audio = data["audio_1"].item()
@@ -236,7 +238,9 @@ def extract_filelists_from_leanne():
     image_neg_words = data["image_labels_2"].item()
 
     episodes = list(range(1000))
-    episodes = random.sample(episodes, 30)
+
+    if type_ == "subsample":
+        episodes = random.sample(episodes, 30)
 
     data = [
         {
@@ -274,10 +278,16 @@ def extract_filelists_from_leanne():
         and datum["image-neg"]["word-en"] in dataset.words_seen
     ]
 
-    with open("data/filelists/leanne-familiar-familiar-test.json", "w") as f:
+    SUFFIXES = {
+        "subsample": "",
+        "full": "-1000",
+    }
+    suffix = SUFFIXES[type_]
+
+    with open(f"data/filelists/leanne{suffix}-familiar-familiar-test.json", "w") as f:
         json.dump(data_ff, f, indent=2)
 
-    with open("data/filelists/leanne-novel-familiar-test.json", "w") as f:
+    with open(f"data/filelists/leanne{suffix}-novel-familiar-test.json", "w") as f:
         json.dump(data_nf, f, indent=2)
 
 
@@ -297,5 +307,5 @@ if __name__ == "__main__":
     # prepare_image_filelist("valid")
     # prepare_familiar_familiar("test", 10)
     # prepare_novel_familiar(10)
-    # extract_filelists_from_leanne()
-    prepare_validation_samples(("english", ), 1, 11)
+    extract_filelists_from_leanne(type_="full")
+    # prepare_validation_samples(("english", ), 1, 11)
