@@ -136,7 +136,7 @@ def evaluate_model_batched(feature_type, test_name, model, device):
     dataset = PairedTestDataset(feature_type, test_name)
     dataloader = DataLoader(
         dataset,
-        batch_size=128,
+        batch_size=4 * 128,
         num_workers=4,
         collate_fn=collate_with_audio,
     )

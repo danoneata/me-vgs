@@ -15,6 +15,8 @@ TESTS = [
     "novel-familiar",
     "leanne-familiar-familiar",
     "leanne-novel-familiar",
+    "leanne-1000-familiar-familiar",
+    "leanne-1000-novel-familiar",
 ]
 
 # from ignite.utils import manual_seed
@@ -24,8 +26,8 @@ results = []
 for test_name in TESTS:
     print(test_name)
     # accuracy = evaluate_model(test_name, model, DEVICE)
-    # accuracy = evaluate_model_batched(feature_type, test_name, model, DEVICE)
-    accuracy = evaluate_model_ignite(feature_type, test_name, model, DEVICE)
+    accuracy = evaluate_model_batched(feature_type, test_name, model, DEVICE)
+    # accuracy = evaluate_model_ignite(feature_type, test_name, model, DEVICE)
 
     print(accuracy)
     results.append(accuracy)
