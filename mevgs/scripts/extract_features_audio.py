@@ -105,7 +105,7 @@ def main(split: Split, feature_type: str):
         return feature
 
     langs = "_".join(LANGS)
-    path_hdf5 = f"output/features/{DATASET_NAME}-{split}-{langs}-{feature_type}.h5"
+    path_hdf5 = f"output/features-audio/{DATASET_NAME}-{split}-{langs}-{feature_type}.h5"
 
     with h5py.File(path_hdf5, "a") as f:
         for i in tqdm(range(len(dataset))):
