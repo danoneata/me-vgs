@@ -1,5 +1,7 @@
-from typing import List, Dict
+from copy import deepcopy
+from itertools import groupby
 from pathlib import Path
+from typing import List, Dict
 
 import json
 import pdb
@@ -7,11 +9,14 @@ import random
 import numpy as np
 
 from toolz import first
+from sklearn.model_selection import train_test_split
 
 from mevgs.data import load_dictionary, MEDataset, PairedMEDataset
+from mevgs.utils import read_json, read_file
 
 
-random.seed(42)
+SEED = 42
+random.seed(SEED)
 
 
 DATA_DIR = Path("./data")
@@ -80,6 +85,95 @@ def prepare_image_filelist(split):
         for image_name in image_names
     ]
     save_data(data_image, "image", split)
+
+
+def prepare_audio_filelists_2():
+    """Prepares audio filelists to have Dutch and French in the test set:
+
+    - Resplits original audio filelists to have familiar audios for Dutch and French in the test set.
+    - Adds novel familiar audio for Dutch and French in the test set.
+
+    """
+    SPLITS = ("train", "valid", "test")
+
+    def are_disjoint(data1, data2):
+        data1 = set(datum.values() for datum in data1)
+        data2 = set(datum.values() for datum in data2)
+        return data1.isdisjoint(data2)
+
+    def move_dutch_french_to_test(data):
+        key = lambda datum: (datum["lang"], datum["word-en"])
+
+        data_train = sorted(data["train"], key=key)
+        data_out = {
+            "train": [],
+            "valid": deepcopy(data["valid"]),
+            "test": deepcopy(data["test"]),
+        }
+
+        for key, group in groupby(data_train, key=key):
+            lang, _ = key
+            group = list(group)
+            if lang in ("dutch", "french"):
+                group_tr, group_te = train_test_split(
+                    group, test_size=10, random_state=SEED
+                )
+                data_out["train"].extend(group_tr)
+                data_out["test"].extend(group_te)
+            elif lang == "english":
+                data_out["train"].extend(group)
+            else:
+                assert False, "Unknown language"
+
+        diff_tr = len(data["train"]) - len(data_out["train"])
+        diff_te = len(data_out["test"]) - len(data["test"])
+        assert diff_tr == diff_te
+
+        assert are_disjoint(data_out["train"], data_out["test"])
+        assert are_disjoint(data_out["train"], data_out["valid"])
+        assert are_disjoint(data_out["valid"], data_out["test"])
+
+        return data_out
+
+    def add_novel_familiar(data):
+        path = "data/{}_words"
+        words_unseen = read_file("data/words-unseen.txt")
+        xx_to_en = {
+            lang: {
+                WORD_DICT[i][lang]: WORD_DICT[i]["english"]
+                for i in range(len(WORD_DICT))
+            }
+            for lang in ("dutch", "french")
+        }
+
+        def get_word_en(lang, file):
+            word, *_ = file.stem.split("_")
+            try:
+                return xx_to_en[lang][word]
+            except KeyError:
+                return None
+
+        data_new = [
+            {
+                "lang": lang,
+                "name": file.stem,
+                "word-en": get_word_en(lang, file),
+            }
+            for lang in ("dutch", "french")
+            for file in Path(path.format(lang)).iterdir()
+            if get_word_en(lang, file) in words_unseen
+        ]
+        data_out = {k: deepcopy(v) for k, v in data.items()}
+        data_out["test"].extend(data_new)
+        return data_out
+
+    path = "data/filelists/audio-{}.json"
+    data = {split: read_json(path.format(split)) for split in SPLITS}
+    data = move_dutch_french_to_test(data)
+    data = add_novel_familiar(data)
+
+    for split in data:
+        save_data(data[split], "audio", split + "-2")
 
 
 def prepare_test_filelist():
@@ -293,7 +387,9 @@ def extract_filelists_from_leanne(type_):
 
 def prepare_validation_samples(langs, num_pos, num_neg):
     # Fix the validation samples to ensure comparable results across runs.
-    dataset = PairedMEDataset("valid", langs, num_pos, num_neg, to_fix_validation_samples=False)
+    dataset = PairedMEDataset(
+        "valid", langs, num_pos, num_neg, to_fix_validation_samples=False
+    )
     samples = [dataset.get_positives_and_negatives(i) for i in range(len(dataset))]
     suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
     with open(f"data/filelists/validation-samples-{suffix}.json", "w") as f:
@@ -307,5 +403,6 @@ if __name__ == "__main__":
     # prepare_image_filelist("valid")
     # prepare_familiar_familiar("test", 10)
     # prepare_novel_familiar(10)
-    extract_filelists_from_leanne(type_="full")
+    # extract_filelists_from_leanne(type_="full")
     # prepare_validation_samples(("english", ), 1, 11)
+    prepare_audio_filelists_2()

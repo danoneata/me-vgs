@@ -1,3 +1,4 @@
+from functools import partial
 from itertools import groupby
 from typing import Literal, Tuple
 
@@ -158,7 +159,7 @@ def load_audio(datum: dict):
 class AudioFeaturesLoader:
     def __init__(self, feature_type, split, langs):
         langs = "_".join(langs)
-        path = f"output/features/me-dataset-{split}-{langs}-{feature_type}.h5"
+        path = f"output/features-audio/me-dataset-{split}-{langs}-{feature_type}.h5"
         self.file = h5py.File(path, "r")
 
     def __call__(self, datum):
@@ -167,6 +168,33 @@ class AudioFeaturesLoader:
         data = data.T
         # D × T
         return torch.tensor(data)
+
+
+class ImageRawLoader:
+    def __init__(self, split):
+        self.transform = TRANSFORM_IMAGE[split]
+        # self.transform = transform_image_test
+
+    def __call__(self, datum):
+        return load_image(datum, self.transform)
+
+
+class ImageFeaturesLoader:
+    def __init__(self, feature_type, split):
+        path = f"output/features-image/me-dataset-{split}-{feature_type}.h5"
+        self.file = h5py.File(path, "r")
+
+    def __call__(self, datum):
+        name = datum["name"]
+        data = np.array(self.file[name]["feature"])
+        return torch.tensor(data)
+
+
+def get_image_loader(feature_type, split):
+    if feature_type == "raw":
+        return ImageRawLoader(split)
+    else:
+        return ImageFeaturesLoader(feature_type, split)
 
 
 def group_by_word(data):
@@ -201,7 +229,8 @@ class PairedMEDataset(Dataset):
         langs,
         num_pos: int,
         num_neg: int,
-        feature_type,
+        feature_type_audio: str,
+        feature_type_image: str,
         # num_word_repeats: int,
         to_fix_validation_samples: bool = True,
     ):
@@ -225,7 +254,8 @@ class PairedMEDataset(Dataset):
             for audio in audios
         ]
         self.word_audio = sorted(self.word_audio, key=lambda x: x[0])
-        self.load_audio = AudioFeaturesLoader(feature_type, split, langs)
+        self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
+        self.load_image = get_image_loader(feature_type_image, split)
 
         if split == "valid" and to_fix_validation_samples:
             suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
@@ -268,7 +298,7 @@ class PairedMEDataset(Dataset):
             {
                 "index": i,
                 "audio": self.load_audio(audio_name),
-                "image": load_image(image_name, transform_image),
+                "image": self.load_image(image_name),
                 "label": 1,
             }
             for image_name, audio_name in zip(
@@ -280,7 +310,7 @@ class PairedMEDataset(Dataset):
             {
                 "index": i,
                 "audio": self.load_audio(audio_name),
-                "image": load_image(image_name, transform_image),
+                "image": self.load_image(image_name),
                 "label": 0,
             }
             for image_name, audio_name in zip(
@@ -295,13 +325,14 @@ class PairedMEDataset(Dataset):
 
 
 class PairedTestDataset(Dataset):
-    def __init__(self, feature_type, test_name):
+    def __init__(self, feature_type_audio, feature_type_image, test_name):
         # assert test_name in {"familiar-familiar", "novel-familiar"}
         super(PairedTestDataset).__init__()
 
         split = "test"
         langs = ("english",)
-        self.load_audio = AudioFeaturesLoader(feature_type, split, langs)
+        self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
+        self.load_image = get_image_loader(feature_type_image, split)
 
         with open(f"data/filelists/{test_name}-test.json", "r") as f:
             self.data_pairs = json.load(f)
@@ -312,8 +343,8 @@ class PairedTestDataset(Dataset):
         assert datum["audio"]["word-en"] != datum["image-neg"]["word-en"]
         return {
             "audio": self.load_audio(datum["audio"]),
-            "image-pos": load_image(datum["image-pos"]),
-            "image-neg": load_image(datum["image-neg"]),
+            "image-pos": self.load_image(datum["image-pos"]),
+            "image-neg": self.load_image(datum["image-neg"]),
         }
 
     def __len__(self):

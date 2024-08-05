@@ -271,6 +271,7 @@ class ImageBackboneDINO(nn.Module):
 IMAGE_BACKBONES = {
     "alexnet": ImageBackboneAlexNet,
     "dino-resnet50": partial(ImageBackboneDINO, type_="resnet50"),
+    "identity": lambda **kwargs: nn.Identity(),
 }
 
 
@@ -289,6 +290,7 @@ class ImageEncoder(nn.Module):
         backbone_type,
         to_freeze_backbone,
         use_pretrained_backbone,
+        input_dim=None,
     ):
         super(ImageEncoder, self).__init__()
         self.feature_extractor = IMAGE_BACKBONES[backbone_type](
@@ -296,7 +298,7 @@ class ImageEncoder(nn.Module):
             use_pretrained=use_pretrained_backbone,
         )
 
-        input_dim = IMAGE_BACKBONE_FEATURE_DIM[backbone_type]
+        input_dim = input_dim or IMAGE_BACKBONE_FEATURE_DIM[backbone_type]
         self.pool = TransformerPooling(input_dim, width, output_dim)
 
     def forward(self, x):

@@ -132,8 +132,12 @@ def score_pair(model, datum, device):
     }
 
 
-def evaluate_model_batched(feature_type, test_name, model, device):
-    dataset = PairedTestDataset(feature_type, test_name)
+def evaluate_model_batched(config, test_name, model, device):
+    dataset = PairedTestDataset(
+        config["data"]["feature_type_audio"],
+        config["data"]["feature_type_image"],
+        test_name,
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=4 * 128,
@@ -155,9 +159,14 @@ def evaluate_model_batched(feature_type, test_name, model, device):
     return 100 * torch.mean(is_correct).item()
 
 
-def evaluate_model_ignite(feature_type, test_name, model, device):
+def evaluate_model_ignite(config, test_name, model, device):
     from ignite.engine import create_supervised_evaluator
-    dataset = PairedTestDataset(feature_type, test_name)
+
+    dataset = PairedTestDataset(
+        config["data"]["feature_type_audio"],
+        config["data"]["feature_type_image"],
+        test_name,
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=128,

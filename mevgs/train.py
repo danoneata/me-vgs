@@ -84,8 +84,15 @@ class UtilsTraining:
         out = batch["label"]
         return inp, out
 
+    # @staticmethod
+    # def set_bn_eval(m):
+    #     classname = m.__class__.__name__
+    #     if classname.find("BatchNorm") != -1:
+    #         m.eval()
+
     @staticmethod
     def model_fn(model, inputs):
+        # model.apply(UtilsTraining.set_bn_eval)
         return model(*inputs)
 
     @staticmethod
@@ -138,9 +145,9 @@ def setup_data(*, num_workers, batch_size, **kwargs_ds):
     return train_dataloader, valid_dataloader
 
 
-def setup_data_paired_test(*, num_workers, batch_size, feature_type):
-    dataset_ff = PairedTestDataset(feature_type, "familiar-familiar")
-    dataset_nf = PairedTestDataset(feature_type, "novel-familiar")
+def setup_data_paired_test(*, num_workers, batch_size, feature_type_audio, feature_type_image):
+    dataset_ff = PairedTestDataset(feature_type_audio, feature_type_image, "familiar-familiar")
+    dataset_nf = PairedTestDataset(feature_type_audio, feature_type_image, "novel-familiar")
 
     dataloader_ff = idist.auto_dataloader(
         dataset_ff,
@@ -173,7 +180,8 @@ def train(local_rank, config_name: str):
     dataloader_ff, dataloader_nf = setup_data_paired_test(
         batch_size=world_size * 16,
         num_workers=4,
-        feature_type=config["data"]["feature_type"],
+        feature_type_audio=config["data"]["feature_type_audio"],
+        feature_type_image=config["data"]["feature_type_image"],
     )
 
     device = config["device"]

@@ -8,7 +8,6 @@ model = MODELS[model_name]()
 model.to(DEVICE)
 
 config = CONFIGS[model_name]
-feature_type = config["data"]["feature_type"]
 
 TESTS = [
     "familiar-familiar",
@@ -25,9 +24,9 @@ TESTS = [
 results = []
 for test_name in TESTS:
     print(test_name)
-    # accuracy = evaluate_model(test_name, model, DEVICE)
-    accuracy = evaluate_model_batched(feature_type, test_name, model, DEVICE)
-    # accuracy = evaluate_model_ignite(feature_type, test_name, model, DEVICE)
+    # accuracy = evaluate_model(config, test_name, model, DEVICE)
+    accuracy = evaluate_model_batched(config, test_name, model, DEVICE)
+    # accuracy = evaluate_model_ignite(config, test_name, model, DEVICE)
 
     print(accuracy)
     results.append(accuracy)

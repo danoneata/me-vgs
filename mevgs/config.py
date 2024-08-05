@@ -870,3 +870,81 @@ for seed, v in enumerate("abcde"):
             },
         },
     }
+
+
+CONFIGS[f"25a-redo"] = {
+    "seed": 0,
+    "device": "cuda",
+    "max_epochs": 24,
+    "warmup_epochs": 4,
+    "n_saved": 5,
+    "log_every_iters": 5,
+    "optimizer": {
+        "lr": 2e-4,
+        "weight_decay": 5e-7,
+    },
+    "data": {
+        "feature_type_audio": "wavlm-base-plus",
+        "feature_type_image": "raw",
+        "langs": ("english",),
+        "num_pos": 1,
+        "num_neg": 11,
+        "num_workers": 12,
+        "batch_size": 60,
+    },
+    "model": {
+        "model_name": "clip",
+        "embed_dim": 256,
+        "audio_encoder_kwargs": {
+            "type": "transformer",
+            "input_dim": 768,
+            "width": 256,
+        },
+        "image_encoder_kwargs": {
+            "backbone_type": "dino-resnet50",
+            "to_freeze_backbone": True,
+            "use_pretrained_backbone": True,
+            "width": 256,
+        },
+    },
+}
+
+
+for seed, v in enumerate("abcde"):
+    CONFIGS[f"26{v}"] = {
+        "seed": seed,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": ("english",),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 256,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 256,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 256,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
