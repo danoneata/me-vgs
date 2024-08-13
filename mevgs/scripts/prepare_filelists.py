@@ -145,7 +145,6 @@ def prepare_audio_filelists_2():
             }
             for lang in ("dutch", "french")
         }
-
         def get_word_en(lang, file):
             word, *_ = file.stem.split("_")
             try:
@@ -231,10 +230,10 @@ def prepare_test_filelist():
     save_data(data_image, "image", "test")
 
 
-def prepare_familiar_familiar(split, num_word_repeat):
+def prepare_familiar_familiar(lang, num_word_repeat, split):
     # split = "test"
     assert split in ("train", "valid", "test")
-    langs = ("english",)
+    langs = (lang,)
     dataset = MEDataset(split, langs)
 
     def sample_neg_train_valid(data, image_pos):
@@ -274,13 +273,13 @@ def prepare_familiar_familiar(split, num_word_repeat):
         sample_pair(word) for word in dataset.words_seen for _ in range(num_word_repeat)
     ]
 
-    with open(f"data/filelists/familiar-familiar-{split}.json", "w") as f:
+    with open(f"data/filelists/familiar-familiar-{lang}-{split}.json", "w") as f:
         json.dump(data, f, indent=2)
 
 
-def prepare_novel_familiar(num_word_repeat):
+def prepare_novel_familiar(lang, num_word_repeat, exclude_words):
     split = "test"
-    langs = ("english",)
+    langs = (lang,)
     dataset = MEDataset(split, langs)
 
     def sample_neg(data, image_pos):
@@ -295,7 +294,10 @@ def prepare_novel_familiar(num_word_repeat):
         return datum
 
     def sample_pair(word):
-        audio = random.choice(dataset.word_to_audios[word])
+        try:
+            audio = random.choice(dataset.word_to_audios[word])
+        except:
+            pdb.set_trace()
         image_pos = random.choice(dataset.word_to_images[word])
         image_neg = sample_neg(dataset.word_to_images, image_pos)
         return {
@@ -307,10 +309,11 @@ def prepare_novel_familiar(num_word_repeat):
     data = [
         sample_pair(word)
         for word in dataset.words_unseen
+        if word not in exclude_words
         for _ in range(num_word_repeat)
     ]
 
-    with open(f"data/filelists/novel-familiar-{split}.json", "w") as f:
+    with open(f"data/filelists/novel-familiar-{lang}-{split}.json", "w") as f:
         json.dump(data, f, indent=2)
 
 
@@ -387,8 +390,16 @@ def extract_filelists_from_leanne(type_):
 
 def prepare_validation_samples(langs, num_pos, num_neg):
     # Fix the validation samples to ensure comparable results across runs.
+    feature_type_audio = "wavlm-base-plus"
+    feature_type_image = "dino-resnet50"
     dataset = PairedMEDataset(
-        "valid", langs, num_pos, num_neg, to_fix_validation_samples=False
+        "valid",
+        langs,
+        num_pos,
+        num_neg,
+        feature_type_audio,
+        feature_type_image,
+        to_fix_validation_samples=False,
     )
     samples = [dataset.get_positives_and_negatives(i) for i in range(len(dataset))]
     suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
@@ -405,4 +416,10 @@ if __name__ == "__main__":
     # prepare_novel_familiar(10)
     # extract_filelists_from_leanne(type_="full")
     # prepare_validation_samples(("english", ), 1, 11)
-    prepare_audio_filelists_2()
+    # prepare_validation_samples(("dutch",), 1, 11)
+    # prepare_validation_samples(("french",), 1, 11)
+    # prepare_audio_filelists_2()
+    for lang in ("english", "french", "dutch"):
+        print(lang)
+        prepare_familiar_familiar(lang, 50, split="test")
+        prepare_novel_familiar(lang, 50, exclude_words=["nautilus"])

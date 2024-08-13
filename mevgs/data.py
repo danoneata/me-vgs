@@ -29,14 +29,14 @@ Language = Literal["english", "dutch", "french"]
 
 def load_dictionary():
     def parse_line(line):
-        en, nl, fr = line.split()
+        en, nl, fr = line.strip().split(",")
         return {
             "english": en,
             "dutch": nl,
             "french": fr,
         }
 
-    return read_file("data/concepts.txt", parse_line)
+    return read_file("data/concepts.csv", parse_line)
 
 
 IMAGE_SIZE = 256
@@ -212,7 +212,7 @@ class MEDataset:
         self.words_unseen = read_file("data/words-unseen.txt")
 
         image_files = read_json(f"data/filelists/image-{split}.json")
-        audio_files = read_json(f"data/filelists/audio-{split}.json")
+        audio_files = read_json(f"data/filelists/audio-{split}-2.json")
         audio_files = [datum for datum in audio_files if datum["lang"] in langs]
 
         self.image_files = image_files
@@ -325,16 +325,16 @@ class PairedMEDataset(Dataset):
 
 
 class PairedTestDataset(Dataset):
-    def __init__(self, feature_type_audio, feature_type_image, test_name):
+    def __init__(self, langs, feature_type_audio, feature_type_image, test_name):
         # assert test_name in {"familiar-familiar", "novel-familiar"}
         super(PairedTestDataset).__init__()
 
         split = "test"
-        langs = ("english",)
         self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
         self.load_image = get_image_loader(feature_type_image, split)
 
-        with open(f"data/filelists/{test_name}-test.json", "r") as f:
+        langs_str = "_".join(langs)
+        with open(f"data/filelists/{test_name}-{langs_str}-test.json", "r") as f:
             self.data_pairs = json.load(f)
 
     def __getitem__(self, index: int):

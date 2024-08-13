@@ -145,9 +145,9 @@ def setup_data(*, num_workers, batch_size, **kwargs_ds):
     return train_dataloader, valid_dataloader
 
 
-def setup_data_paired_test(*, num_workers, batch_size, feature_type_audio, feature_type_image):
-    dataset_ff = PairedTestDataset(feature_type_audio, feature_type_image, "familiar-familiar")
-    dataset_nf = PairedTestDataset(feature_type_audio, feature_type_image, "novel-familiar")
+def setup_data_paired_test(*, num_workers, batch_size, langs, feature_type_audio, feature_type_image):
+    dataset_ff = PairedTestDataset(langs, feature_type_audio, feature_type_image, "familiar-familiar")
+    dataset_nf = PairedTestDataset(langs, feature_type_audio, feature_type_image, "novel-familiar")
 
     dataloader_ff = idist.auto_dataloader(
         dataset_ff,
@@ -180,6 +180,7 @@ def train(local_rank, config_name: str):
     dataloader_ff, dataloader_nf = setup_data_paired_test(
         batch_size=world_size * 16,
         num_workers=4,
+        langs=config["data"]["langs"],
         feature_type_audio=config["data"]["feature_type_audio"],
         feature_type_image=config["data"]["feature_type_image"],
     )

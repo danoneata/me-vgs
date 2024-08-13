@@ -8,14 +8,22 @@ model = MODELS[model_name]()
 model.to(DEVICE)
 
 config = CONFIGS[model_name]
+langs = config["data"]["langs"]
+lang_str = langs[0]
+assert len(langs) == 1
+
+# TESTS = [
+#     "familiar-familiar",
+#     "novel-familiar",
+#     "leanne-familiar-familiar",
+#     "leanne-novel-familiar",
+#     "leanne-1000-familiar-familiar",
+#     "leanne-1000-novel-familiar",
+# ]
 
 TESTS = [
     "familiar-familiar",
     "novel-familiar",
-    "leanne-familiar-familiar",
-    "leanne-novel-familiar",
-    "leanne-1000-familiar-familiar",
-    "leanne-1000-novel-familiar",
 ]
 
 # from ignite.utils import manual_seed

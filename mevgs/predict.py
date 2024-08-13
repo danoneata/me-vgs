@@ -134,6 +134,7 @@ def score_pair(model, datum, device):
 
 def evaluate_model_batched(config, test_name, model, device):
     dataset = PairedTestDataset(
+        config["data"]["langs"],
         config["data"]["feature_type_audio"],
         config["data"]["feature_type_image"],
         test_name,
@@ -163,6 +164,7 @@ def evaluate_model_ignite(config, test_name, model, device):
     from ignite.engine import create_supervised_evaluator
 
     dataset = PairedTestDataset(
+        config["data"]["langs"],
         config["data"]["feature_type_audio"],
         config["data"]["feature_type_image"],
         test_name,

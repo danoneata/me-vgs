@@ -10,7 +10,7 @@ import numpy as np
 from transformers import AutoFeatureExtractor, WavLMModel, Wav2Vec2Model
 from tqdm import tqdm
 
-from mevgs.data import MEDataset, get_audio_path, Split
+from mevgs.data import MEDataset, get_audio_path, Split, Language
 
 
 class HuggingFaceFeatureExtractor:
@@ -81,14 +81,16 @@ FEATURE_EXTRACTORS = {
 
 
 SPLITS = "train valid test".split()
+LANGS = "english dutch french".split()
 @click.command()
 @click.option("-s", "--split", type=click.Choice(SPLITS), required=True)
 @click.option("-f", "--feature-type", type=str, required=True)
-def main(split: Split, feature_type: str):
+@click.option("-l", "--lang", type=click.Choice(LANGS), required=True)
+def main(split: Split, feature_type: str, lang: Language):
     SAMPLING_RATE = 16_000
     DATASET_NAME = "me-dataset"
-    LANGS = ("english",)
-    dataset = MEDataset(split, LANGS)
+    langs = (lang, )
+    dataset = MEDataset(split, langs)
     dataset = dataset.audio_files
 
     feature_extractor = FEATURE_EXTRACTORS[feature_type]()
@@ -104,8 +106,8 @@ def main(split: Split, feature_type: str):
         feature = feature.cpu().numpy()
         return feature
 
-    langs = "_".join(LANGS)
-    path_hdf5 = f"output/features-audio/{DATASET_NAME}-{split}-{langs}-{feature_type}.h5"
+    # langs = "_".join(LANGS)
+    path_hdf5 = f"output/features-audio/{DATASET_NAME}-{split}-{lang}-{feature_type}.h5"
 
     with h5py.File(path_hdf5, "a") as f:
         for i in tqdm(range(len(dataset))):
