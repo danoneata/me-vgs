@@ -418,8 +418,9 @@ if __name__ == "__main__":
     # prepare_validation_samples(("english", ), 1, 11)
     # prepare_validation_samples(("dutch",), 1, 11)
     # prepare_validation_samples(("french",), 1, 11)
+    prepare_validation_samples(("english", "french"), 1, 11)
     # prepare_audio_filelists_2()
-    for lang in ("english", "french", "dutch"):
-        print(lang)
-        prepare_familiar_familiar(lang, 50, split="test")
-        prepare_novel_familiar(lang, 50, exclude_words=["nautilus"])
+    # for lang in ("english", "french", "dutch"):
+    #     print(lang)
+    #     prepare_familiar_familiar(lang, 50, split="test")
+    #     prepare_novel_familiar(lang, 50, exclude_words=["nautilus"])

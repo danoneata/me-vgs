@@ -69,6 +69,9 @@ def identity_loss(loss, _):
 # return (loss1 + loss2) / 2
 
 
+TEST_NAMES = ["familiar-familiar", "novel-familiar"]
+
+
 def unwrap_model(model):
     if hasattr(model, "module"):
         return model.module
@@ -125,8 +128,8 @@ class UtilsPairedTest:
         return unwrap_model(model).predict_paired_test(*inputs)
 
     @staticmethod
-    def get_metrics(test_name, device):
-        return {f"accuracy-{test_name}": Accuracy(device=device)}
+    def get_metrics(lang, test_name, device):
+        return {f"{lang}/accuracy-{test_name}": Accuracy(device=device)}
 
 
 def setup_data(*, num_workers, batch_size, **kwargs_ds):
@@ -145,24 +148,26 @@ def setup_data(*, num_workers, batch_size, **kwargs_ds):
     return train_dataloader, valid_dataloader
 
 
-def setup_data_paired_test(*, num_workers, batch_size, langs, feature_type_audio, feature_type_image):
-    dataset_ff = PairedTestDataset(langs, feature_type_audio, feature_type_image, "familiar-familiar")
-    dataset_nf = PairedTestDataset(langs, feature_type_audio, feature_type_image, "novel-familiar")
-
-    dataloader_ff = idist.auto_dataloader(
-        dataset_ff,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        collate_fn=collate_with_audio,
-    )
-    dataloader_nf = idist.auto_dataloader(
-        dataset_nf,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        collate_fn=collate_with_audio,
-    )
-
-    return dataloader_ff, dataloader_nf
+def setup_data_paired_test(
+    *, num_workers, batch_size, langs, feature_type_audio, feature_type_image
+):
+    return {
+        lang: {
+            test_name: idist.auto_dataloader(
+                PairedTestDataset(
+                    (lang,),
+                    feature_type_audio,
+                    feature_type_image,
+                    test_name,
+                ),
+                batch_size=batch_size,
+                num_workers=num_workers,
+                collate_fn=collate_with_audio,
+            )
+            for test_name in TEST_NAMES
+        }
+        for lang in langs
+    }
 
 
 def train(local_rank, config_name: str):
@@ -177,7 +182,7 @@ def train(local_rank, config_name: str):
 
     world_size = idist.get_world_size()
     dataloader_train, dataloader_valid = setup_data(**config["data"])
-    dataloader_ff, dataloader_nf = setup_data_paired_test(
+    dataloaders = setup_data_paired_test(
         batch_size=world_size * 16,
         num_workers=4,
         langs=config["data"]["langs"],
@@ -216,22 +221,20 @@ def train(local_rank, config_name: str):
         device=device,
         metrics=UtilsTraining.get_metrics(device),  # type: ignore
     )
-    evaluator_ff = create_supervised_evaluator(
-        model,
-        prepare_batch=UtilsPairedTest.prepare_batch_fn,
-        model_fn=UtilsPairedTest.model_fn,
-        device=device,
-        output_transform=UtilsPairedTest.output_transform,
-        metrics=UtilsPairedTest.get_metrics("familiar-familiar", device),  # type: ignore
-    )
-    evaluator_nf = create_supervised_evaluator(
-        model,
-        prepare_batch=UtilsPairedTest.prepare_batch_fn,
-        model_fn=UtilsPairedTest.model_fn,
-        device=device,
-        output_transform=UtilsPairedTest.output_transform,
-        metrics=UtilsPairedTest.get_metrics("novel-familiar", device),  # type: ignore
-    )
+    evaluators = {
+        lang: {
+            test_name: create_supervised_evaluator(
+                model,
+                prepare_batch=UtilsPairedTest.prepare_batch_fn,
+                model_fn=UtilsPairedTest.model_fn,
+                device=device,
+                output_transform=UtilsPairedTest.output_transform,
+                metrics=UtilsPairedTest.get_metrics(lang, test_name, device),  # type: ignore
+            )
+            for test_name in TEST_NAMES
+        }
+        for lang in config["data"]["langs"]
+    }
 
     # Early stopping
     # handler = EarlyStopping(config["patience"], score_func, trainer)
@@ -283,24 +286,35 @@ def train(local_rank, config_name: str):
     )
     trainer.add_event_handler(Events.ITERATION_STARTED, scheduler)
 
+    def get_results_per_lang(lang, evaluators):
+        return "{} → FF: {:.3f} · NF: {:.3f}".format(
+            lang,
+            evaluators["familiar-familiar"].state.metrics[f"{lang}/accuracy-familiar-familiar"],
+            evaluators["novel-familiar"].state.metrics[f"{lang}/accuracy-novel-familiar"],
+        )
+
     # Run evaluation at every training epoch end with shortcut `on` decorator
     # API and print metrics to the stderr again with `add_event_handler` API for
     # evaluation stats.
     @trainer.on(Events.STARTED | Events.EPOCH_COMPLETED(every=1))
     def _():
-        evaluator_ff.run(dataloader_ff)
-        evaluator_nf.run(dataloader_nf)
+        langs = config["data"]["langs"]
+        for lang, dataloaders1 in dataloaders.items():
+            for test_name, dataloader in dataloaders1.items():
+                evaluators[lang][test_name].run(dataloader)
         evaluator.run(dataloader_valid)
         if rank == 0:
             print(
-                "{:s} ◇ {:s} · {:4d} / {:4d} · loss: {:.3f} ◇ FF: {:.3f} · NF: {:.3f}".format(
+                "{:s} ◇ {:s} · {:4d} / {:4d} · loss: {:.3f} ◇ {}".format(
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "eval.",
                     trainer.state.epoch,
                     trainer.state.iteration,
                     evaluator.state.metrics["loss"],
-                    evaluator_ff.state.metrics["accuracy-familiar-familiar"],
-                    evaluator_nf.state.metrics["accuracy-novel-familiar"],
+                    " ◇ ".join(
+                        get_results_per_lang(lang, evaluators[lang])
+                        for lang in langs
+                    ),
                 )
             )
 
@@ -325,21 +339,15 @@ def train(local_rank, config_name: str):
             global_step_transform=global_step_from_engine(trainer),
         )
 
-        tb_logger.attach_output_handler(
-            evaluator_ff,
-            event_name=Events.COMPLETED,
-            tag="test",
-            metric_names=["accuracy-familiar-familiar"],
-            global_step_transform=global_step_from_engine(trainer),
-        )
-
-        tb_logger.attach_output_handler(
-            evaluator_nf,
-            event_name=Events.COMPLETED,
-            tag="test",
-            metric_names=["accuracy-novel-familiar"],
-            global_step_transform=global_step_from_engine(trainer),
-        )
+        for lang, evaluators1 in evaluators.items():
+            for test_name, evaluator1 in evaluators1.items():
+                tb_logger.attach_output_handler(
+                    evaluator1,
+                    event_name=Events.COMPLETED,
+                    tag="test",
+                    metric_names=[f"{lang}/accuracy-{test_name}"],
+                    global_step_transform=global_step_from_engine(trainer),
+                )
 
         tb_logger.attach_opt_params_handler(
             trainer,

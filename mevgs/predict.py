@@ -132,9 +132,9 @@ def score_pair(model, datum, device):
     }
 
 
-def evaluate_model_batched(config, test_name, model, device):
+def evaluate_model_batched(config, lang, test_name, model, device):
     dataset = PairedTestDataset(
-        config["data"]["langs"],
+        (lang, ),
         config["data"]["feature_type_audio"],
         config["data"]["feature_type_image"],
         test_name,

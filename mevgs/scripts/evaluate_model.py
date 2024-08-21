@@ -9,8 +9,8 @@ model.to(DEVICE)
 
 config = CONFIGS[model_name]
 langs = config["data"]["langs"]
-lang_str = langs[0]
-assert len(langs) == 1
+# lang_str = langs[0]
+# assert len(langs) == 1
 
 # TESTS = [
 #     "familiar-familiar",
@@ -30,13 +30,14 @@ TESTS = [
 # manual_seed(config["seed"])
 
 results = []
-for test_name in TESTS:
-    print(test_name)
-    # accuracy = evaluate_model(config, test_name, model, DEVICE)
-    accuracy = evaluate_model_batched(config, test_name, model, DEVICE)
-    # accuracy = evaluate_model_ignite(config, test_name, model, DEVICE)
+for lang in langs:
+    for test_name in TESTS:
+        # accuracy = evaluate_model(config, test_name, model, DEVICE)
+        accuracy = evaluate_model_batched(config, lang, test_name, model, DEVICE)
+        # accuracy = evaluate_model_ignite(config, test_name, model, DEVICE)
 
-    print(accuracy)
-    results.append(accuracy)
+        print(test_name)
+        print(accuracy)
+        results.append(accuracy)
 
 print(",".join(map(str, results)))

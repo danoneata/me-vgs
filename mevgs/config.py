@@ -997,3 +997,208 @@ for lang in ("dutch", "french"):
                 },
             },
         }
+
+
+for seed, v in enumerate("abcde"):
+    CONFIGS[f"26{v}-en-fr"] = {
+        "seed": seed,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": ("english", "french"),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 256,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 256,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 256,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
+
+for seed, v in enumerate("abcde"):
+    CONFIGS[f"27{v}-en-fr"] = {
+        "seed": seed,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": ("english", "french"),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 256,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 512,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 256,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
+
+for seed, v in enumerate("abcde"):
+    CONFIGS[f"28{v}-en-fr"] = {
+        "seed": seed,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": ("english", "french"),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 256,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 256,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 512,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
+
+
+for seed, v in enumerate("abcde"):
+    CONFIGS[f"29{v}-en-fr"] = {
+        "seed": seed,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": ("english", "french"),
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 512,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 512,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 512,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
+
+
+SIZES = [
+    ("sm", 128),
+    ("xsm", 64),
+]
+
+
+for s, e in SIZES:
+    for seed, v in enumerate("abcde"):
+        CONFIGS[f"26{v}-{s}-en-fr"] = {
+            "seed": seed,
+            "device": "cuda",
+            "max_epochs": 24,
+            "warmup_epochs": 4,
+            "n_saved": 5,
+            "log_every_iters": 5,
+            "optimizer": {
+                "lr": 2e-4,
+                "weight_decay": 5e-7,
+            },
+            "data": {
+                "feature_type_audio": "wavlm-base-plus",
+                "feature_type_image": "dino-resnet50",
+                "langs": ("english", "french"),
+                "num_pos": 1,
+                "num_neg": 11,
+                "num_workers": 12,
+                "batch_size": 60,
+            },
+            "model": {
+                "model_name": "clip",
+                "embed_dim": e,
+                "audio_encoder_kwargs": {
+                    "type": "transformer",
+                    "input_dim": 768,
+                    "width": e,
+                },
+                "image_encoder_kwargs": {
+                    "input_dim": 2048,
+                    "width": e,
+                    "backbone_type": "identity",
+                    "to_freeze_backbone": None,
+                    "use_pretrained_backbone": None,
+                },
+            },
+        }

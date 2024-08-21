@@ -158,13 +158,18 @@ def load_audio(datum: dict):
 
 class AudioFeaturesLoader:
     def __init__(self, feature_type, split, langs):
-        langs = "_".join(langs)
-        path = f"output/features-audio/me-dataset-{split}-{langs}-{feature_type}.h5"
-        self.file = h5py.File(path, "r")
+        path = "output/features-audio/me-dataset-{split}-{lang}-{feature_type}.h5"
+        self.files = {
+            lang: h5py.File(
+                path.format(split=split, lang=lang, feature_type=feature_type), "r"
+            )
+            for lang in langs
+        }
 
     def __call__(self, datum):
         name = datum["name"]
-        data = np.array(self.file[name]["feature"])
+        lang = datum["lang"]
+        data = np.array(self.files[lang][name]["feature"])
         data = data.T
         # D × T
         return torch.tensor(data)
@@ -373,10 +378,11 @@ if __name__ == "__main__":
     num_neg = 9
     dataset = PairedMEDataset(
         split="train",
-        langs=("english",),
+        langs=("english", "french"),
         num_pos=num_pos,
         num_neg=num_neg,
-        feature_type="wavlm-base-plus",
+        feature_type_audio="wavlm-base-plus",
+        feature_type_image="dino-resnet50",
     )
     dataloader = DataLoader(
         dataset,
