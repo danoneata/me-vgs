@@ -16,9 +16,9 @@ torch.manual_seed(0)
 
 
 def transform_geometrical(x):
-    θ = np.pi / 8
+    θ = np.pi / 3
     σ = 0.999
-    ε = 0.0001
+    ε = 0.01
     τ = [0.0, 0.0]
 
     x2 = x.copy()
@@ -39,7 +39,7 @@ def transform_model(x):
     x2 = torch.tensor(x2, dtype=torch.float32)
     x2 = model(x2).detach().numpy()
     x3 = x2.copy()
-    return x3    
+    return x3
 
 
 def transform_identity(x):
@@ -53,20 +53,41 @@ TRANSFORM_FUNCS = {
 }
 
 
-def generate_data(transform_func_type):
-    n_samples = 500
+def generate_correlated(n_samples):
+    x1 = np.random.randn(n_samples, 1)
+    return np.concatenate([x1, x1], axis=1) + np.random.randn(n_samples, 2) * 0.01
 
-    x1, Y1 = make_circles(
+
+def generate_circle(n_samples):
+    x1, y1 = make_circles(
         n_samples=2 * n_samples,
         noise=0.1,
         factor=0.2,
         random_state=1,
     )
-    x1 = x1[Y1 == 0]
+    x1 = x1[y1 == 0]
+    return x1
 
+
+GEN_DATA_FUNCS = {
+    "correlated": generate_correlated,
+    "circle": generate_circle,
+}
+
+
+def generate_x1(data_type, n_samples=500):
+    return GEN_DATA_FUNCS[data_type](n_samples)
+
+
+def generate_x2(transform_func_type, x1):
     transform_func = TRANSFORM_FUNCS[transform_func_type]
     x2 = transform_func(x1)
+    return x2
 
+
+def generate_data(data_func_type, transform_func_type):
+    x1 = generate_x1(data_func_type)
+    x2 = generate_x2(transform_func_type, x1)
     return x1, x2
 
 
@@ -93,13 +114,18 @@ def stdnorm(x):
     return (x - x.mean(dim=0, keepdim=True)) / x.std(dim=0, keepdim=True)
 
 
-def barlip_loss(z1, z2, λ=0.1):
+def barlip_loss(z1, z2, λ=100):
+# def barlip_loss(z1, z2, λ=0.005):
     N, D = z1.size()
     # z1 = (z1 - z1.mean(dim=0)) / z1.std(dim=0)
     # z2 = (z2 - z2.mean(dim=0)) / z2.std(dim=0)
     corr = torch.einsum("bi, bj -> ij", z1, z2) / N
     diag = torch.eye(D, device=corr.device)
     cdif = (corr - diag).pow(2)
+    print("corr:    ", corr)
+    print("diag:    ", cdif[diag.bool()].sum())
+    print("off-diag:", cdif[~diag.bool()].sum())
+    print()
     cdif[~diag.bool()] *= λ
     loss = cdif.sum()
     return loss
@@ -121,8 +147,12 @@ def get_model():
     return nn.Sequential(
         nn.Linear(2, 10),
         nn.ReLU(),
-        # nn.Linear(10, 10),
-        # nn.ReLU(),
+        nn.Linear(10, 10),
+        nn.ReLU(),
+        nn.Linear(10, 10),
+        nn.ReLU(),
+        nn.Linear(10, 10),
+        nn.ReLU(),
         nn.Linear(10, 2),
     )
 
@@ -152,8 +182,16 @@ def train(x1, x2, loss_type, to_run):
 
     n_epochs = 2000
 
-    model = get_model()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.004)
+    model1 = get_model()
+    model2 = get_model()
+    optimizer = torch.optim.Adam(
+        [
+            {"params": model1.parameters()},
+            {"params": model2.parameters()},
+        ],
+        lr=0.004,
+    )
+
     x1 = torch.tensor(x1, dtype=torch.float32)
     x2 = torch.tensor(x2, dtype=torch.float32)
 
@@ -174,8 +212,8 @@ def train(x1, x2, loss_type, to_run):
     for epoch in range(1, n_epochs + 1):
         optimizer.zero_grad()
 
-        z1 = model(x1)
-        z2 = x2
+        z1 = model1(x1)
+        z2 = model2(x2)
 
         zn1 = norm_fn(z1)
         zn2 = norm_fn(z2)
@@ -193,16 +231,27 @@ def train(x1, x2, loss_type, to_run):
         optimizer.step()
 
 
-
 if __name__ == "__main__":
     with st.sidebar:
-        transform_func_type = st.selectbox("Transform function", ["geometrical", "model", "identity"])
-        loss_type = st.selectbox("Loss type", ["clip", "barlip"])
+        data_func_type = st.selectbox("Data 1 (blue) · generate:", GEN_DATA_FUNCS.keys())
+        transform_func_type = st.selectbox("Data 2 (orange) · transform:", TRANSFORM_FUNCS.keys())
+        loss_type = st.selectbox("Loss type:", LOSSES.keys())
         to_run = st.button("Run")
 
-    x1, x2 = generate_data(transform_func_type)
+    x1, x2 = generate_data(data_func_type, transform_func_type)
     fig, ax = plot(x1, x2)
     ax.set_title("Original data")
     st.pyplot(fig)
     st.markdown("---")
     train(x1, x2, loss_type, to_run)
+
+
+# x1 = np.random.randn(500, 1)
+# x1 = np.concatenate([x1, x1, x1, x1, x1, x1], axis=1)
+# x1 = np.random.randn(500, 6)
+# x2 = x1
+# x1 = torch.tensor(x1)
+# x2 = torch.tensor(x2)
+# x1 = stdnorm(x1)
+# x2 = stdnorm(x2)
+# print(barlip_loss(x1, x2))

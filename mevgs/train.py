@@ -28,6 +28,7 @@ from mevgs.data import (
     collate_with_audio,
     PairedMEDataset,
     PairedTestDataset,
+    SimplePairedMEDataset,
 )
 from mevgs.model import setup_model
 
@@ -132,7 +133,7 @@ class UtilsPairedTest:
         return {f"{lang}/accuracy-{test_name}": Accuracy(device=device)}
 
 
-def setup_data(*, num_workers, batch_size, **kwargs_ds):
+def setup_data_nested(*, num_workers, batch_size, **kwargs_ds):
     train_dataset = PairedMEDataset(split="train", **kwargs_ds)
     valid_dataset = PairedMEDataset(split="valid", **kwargs_ds)
 
@@ -140,6 +141,22 @@ def setup_data(*, num_workers, batch_size, **kwargs_ds):
         "num_workers": num_workers,
         "batch_size": batch_size,
         "collate_fn": collate_nested,
+    }
+
+    train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl, shuffle=True)
+    valid_dataloader = idist.auto_dataloader(valid_dataset, **kwargs_dl)
+
+    return train_dataloader, valid_dataloader
+
+
+def setup_data_simple(*, num_workers, batch_size, **kwargs_ds):
+    train_dataset = SimplePairedMEDataset(split="train", **kwargs_ds)
+    valid_dataset = SimplePairedMEDataset(split="valid", **kwargs_ds)
+
+    kwargs_dl = {
+        "num_workers": num_workers,
+        "batch_size": batch_size,
+        "collate_fn": collate_with_audio,
     }
 
     train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl, shuffle=True)
@@ -170,6 +187,13 @@ def setup_data_paired_test(
     }
 
 
+SETUP_DATA_FUNCS = {
+    "clip": setup_data_nested,
+    "mattnet": setup_data_nested,
+    "barlip": setup_data_simple,
+}
+
+
 def train(local_rank, config_name: str):
     rank = idist.get_rank()
     config = CONFIGS[config_name]
@@ -181,6 +205,7 @@ def train(local_rank, config_name: str):
     # config.output_dir = output_dir
 
     world_size = idist.get_world_size()
+    setup_data = SETUP_DATA_FUNCS[config["model"]["model_name"]]
     dataloader_train, dataloader_valid = setup_data(**config["data"])
     dataloaders = setup_data_paired_test(
         batch_size=world_size * 16,

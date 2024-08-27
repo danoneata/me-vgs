@@ -545,9 +545,89 @@ class CLIP(nn.Module):
         return F.softmax(scores, dim=1)
 
 
+class BarLIP(nn.Module):
+    def __init__(self, embed_dim, audio_encoder_kwargs, image_encoder_kwargs, λ):
+        super(BarLIP, self).__init__()
+        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
+            output_dim=embed_dim,
+            **audio_encoder_kwargs,
+        )
+        self.image_enc = ImageEncoder(
+            output_dim=embed_dim,
+            **image_encoder_kwargs,
+        )
+        self.bn_audio = nn.BatchNorm1d(embed_dim, affine=False)
+        self.bn_image = nn.BatchNorm1d(embed_dim, affine=False)
+        self.λ = λ
+
+    def score_emb(self, audio_emb, image_emb):
+        audio_emb = audio_emb.mean(dim=-1)
+        audio_emb = self.bn_audio(audio_emb)
+        image_emb = image_emb.mean(dim=-1)
+        image_emb = self.bn_image(image_emb)
+        return - (audio_emb - image_emb).pow(2).sum(dim=-1)
+
+    # def std_normalize(self, x, dim):
+    #     μ = x.mean(dim=dim, keepdim=True)
+    #     σ = x.std(dim=dim, keepdim=True)
+    #     return (x - μ) / σ
+
+    def forward(self, audio, audio_length, image, labels):
+        """Input shapes:
+
+        - audio:        B × D × T
+        - audio_length: B
+        - image:        B × 3 × H × W
+        - labels:       B
+
+        Currently, we assume that there is a single positive: pos = 1.
+
+        """
+        audio_emb = self.audio_enc(audio, audio_length)
+        audio_emb = audio_emb.mean(dim=-1)
+        # audio_emb = self.std_normalize(audio_emb, dim=0)
+        audio_emb = self.bn_audio(audio_emb)
+
+        image_emb = self.image_enc(image)
+        image_emb = image_emb.mean(dim=-1)
+        # image_emb = self.std_normalize(image_emb, dim=0)
+        image_emb = self.bn_image(image_emb)
+
+        B, D = audio_emb.shape
+
+        corr = torch.einsum("bi, bj -> ij", audio_emb, image_emb) / B
+        diag = torch.eye(D, device=corr.device)
+        cdif = (corr - diag).pow(2)
+        cdif[~diag.bool()] *= self.λ
+        return cdif.sum()
+
+    def predict_paired_test(self, audio, audio_length, image_pos, image_neg):
+        """Input shapes:
+
+        - audio:        B × D × T
+        - audio_length: B
+        - image-pos:    B × 3 × H × W
+        - image-neg:    B × 3 × H × W
+
+        """
+        audio_emb = self.audio_enc(audio, audio_length)
+
+        image_pos_emb = self.image_enc(image_pos)
+        image_neg_emb = self.image_enc(image_neg)
+
+        scores_pos = self.score_emb(audio_emb, image_pos_emb)
+        scores_neg = self.score_emb(audio_emb, image_neg_emb)
+
+        scores = torch.stack([scores_pos, scores_neg], dim=1)
+        return scores
+
+
+
 MODELS = {
     "mattnet": MattNet,
     "clip": CLIP,
+    "barlip": BarLIP,
 }
 
 

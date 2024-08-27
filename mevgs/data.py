@@ -227,6 +227,56 @@ class MEDataset:
         self.word_to_audios = group_by_word(audio_files)
 
 
+class SimplePairedMEDataset(Dataset):
+    def __init__(
+        self,
+        split,
+        langs,
+        feature_type_audio: str,
+        feature_type_image: str,
+        to_fix_validation_samples: bool = True,
+    ):
+        super(SimplePairedMEDataset).__init__()
+
+        assert split in ("train", "valid")
+        self.split = split
+        self.dataset = MEDataset(split, langs)
+
+        # Use Leanne's order
+        self.word_audio = [
+            (word, audio)
+            for word, audios in self.dataset.word_to_audios.items()
+            for audio in audios
+        ]
+        self.word_audio = sorted(self.word_audio, key=lambda x: x[0])
+        self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
+        self.load_image = get_image_loader(feature_type_image, split)
+
+        if split == "valid" and to_fix_validation_samples:
+            suffix = "_".join(langs)
+            path = f"data/filelists/validation-samples-simple-{suffix}.json"
+            with open(path, "r") as f:
+                validation_samples = json.load(f)
+            self.get_positive_pair = lambda i: validation_samples[i]
+
+    def get_positive_pair(self, i):
+        word, audio = self.word_audio[i]
+        image = random.choice(self.dataset.word_to_images[word])
+        return audio, image
+
+    def __getitem__(self, i):
+        audio_name, image_name = self.get_positive_pair(i)
+        return {
+            "index": i,
+            "audio": self.load_audio(audio_name),
+            "image": self.load_image(image_name),
+            "label": 1,
+        }
+
+    def __len__(self):
+        return len(self.word_audio)
+
+
 class PairedMEDataset(Dataset):
     def __init__(
         self,

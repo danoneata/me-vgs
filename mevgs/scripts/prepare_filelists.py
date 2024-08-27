@@ -11,7 +11,7 @@ import numpy as np
 from toolz import first
 from sklearn.model_selection import train_test_split
 
-from mevgs.data import load_dictionary, MEDataset, PairedMEDataset
+from mevgs.data import load_dictionary, MEDataset, PairedMEDataset, SimplePairedMEDataset
 from mevgs.utils import read_json, read_file
 
 
@@ -406,6 +406,23 @@ def prepare_validation_samples(langs, num_pos, num_neg):
     with open(f"data/filelists/validation-samples-{suffix}.json", "w") as f:
         json.dump(samples, f, indent=2)
 
+def prepare_validation_samples_simple(langs):
+    # Fix the validation samples to ensure comparable results across runs.
+    feature_type_audio = "wavlm-base-plus"
+    feature_type_image = "dino-resnet50"
+    dataset = SimplePairedMEDataset(
+        "valid",
+        langs,
+        feature_type_audio,
+        feature_type_image,
+        to_fix_validation_samples=False,
+    )
+    samples = [dataset.get_positive_pair(i) for i in range(len(dataset))]
+    suffix = "_".join(langs)
+    with open(f"data/filelists/validation-samples-simple-{suffix}.json", "w") as f:
+        json.dump(samples, f, indent=2)
+
+
 
 if __name__ == "__main__":
     # prepare_audio_filelist("train")
@@ -418,7 +435,10 @@ if __name__ == "__main__":
     # prepare_validation_samples(("english", ), 1, 11)
     # prepare_validation_samples(("dutch",), 1, 11)
     # prepare_validation_samples(("french",), 1, 11)
-    prepare_validation_samples(("english", "french"), 1, 11)
+    # prepare_validation_samples(("english", "french"), 1, 11)
+    prepare_validation_samples_simple(("english", ))
+    prepare_validation_samples_simple(("french", ))
+    prepare_validation_samples_simple(("english", "french"))
     # prepare_audio_filelists_2()
     # for lang in ("english", "french", "dutch"):
     #     print(lang)

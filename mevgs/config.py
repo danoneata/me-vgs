@@ -1157,15 +1157,61 @@ for seed, v in enumerate("abcde"):
     }
 
 
-SIZES = [
-    ("sm", 128),
-    ("xsm", 64),
-]
+SIZES = {
+    "lg": 512,
+    "sm": 128,
+    "xsm": 64,
+}
 
 
-for s, e in SIZES:
+for s in ["xsm", "sm", "lg"]:
+    for langs in [("english", ), ("french", ), ("english", "french")]:
+        for seed, v in enumerate("abcde"):
+            e = SIZES[s]
+            suffix = "-".join(LANG_SHORT[l] for l in langs)
+            CONFIGS[f"26{v}-{s}-{suffix}"] = {
+                "seed": seed,
+                "device": "cuda",
+                "max_epochs": 24,
+                "warmup_epochs": 4,
+                "n_saved": 5,
+                "log_every_iters": 5,
+                "optimizer": {
+                    "lr": 2e-4,
+                    "weight_decay": 5e-7,
+                },
+                "data": {
+                    "feature_type_audio": "wavlm-base-plus",
+                    "feature_type_image": "dino-resnet50",
+                    "langs": langs,
+                    "num_pos": 1,
+                    "num_neg": 11,
+                    "num_workers": 12,
+                    "batch_size": 60,
+                },
+                "model": {
+                    "model_name": "clip",
+                    "embed_dim": e,
+                    "audio_encoder_kwargs": {
+                        "type": "transformer",
+                        "input_dim": 768,
+                        "width": e,
+                    },
+                    "image_encoder_kwargs": {
+                        "input_dim": 2048,
+                        "width": e,
+                        "backbone_type": "identity",
+                        "to_freeze_backbone": None,
+                        "use_pretrained_backbone": None,
+                    },
+                },
+            }
+
+
+for langs in [("english", ), ("french", ), ("english", "french")]:
     for seed, v in enumerate("abcde"):
-        CONFIGS[f"26{v}-{s}-en-fr"] = {
+        suffix = "-".join(LANG_SHORT[l] for l in langs)
+        CONFIGS[f"barlip-00{v}-{suffix}"] = {
             "seed": seed,
             "device": "cuda",
             "max_epochs": 24,
@@ -1173,32 +1219,75 @@ for s, e in SIZES:
             "n_saved": 5,
             "log_every_iters": 5,
             "optimizer": {
-                "lr": 2e-4,
+                "lr": 4e-5,
                 "weight_decay": 5e-7,
             },
             "data": {
                 "feature_type_audio": "wavlm-base-plus",
                 "feature_type_image": "dino-resnet50",
-                "langs": ("english", "french"),
-                "num_pos": 1,
-                "num_neg": 11,
+                "langs": langs,
                 "num_workers": 12,
-                "batch_size": 60,
+                "batch_size": 768,
             },
             "model": {
-                "model_name": "clip",
-                "embed_dim": e,
+                "model_name": "barlip",
+                "embed_dim": 256,
+                "λ": 0.005,
                 "audio_encoder_kwargs": {
                     "type": "transformer",
                     "input_dim": 768,
-                    "width": e,
+                    "width": 256,
                 },
                 "image_encoder_kwargs": {
                     "input_dim": 2048,
-                    "width": e,
+                    "width": 256,
                     "backbone_type": "identity",
                     "to_freeze_backbone": None,
                     "use_pretrained_backbone": None,
                 },
             },
         }
+
+for langs in [("english", ), ("french", ), ("english", "french")]:
+    for size in ["sm", "lg"]:
+        for seed, v in enumerate("abcde"):
+            e = SIZES[size]
+            # b = 768 if size == "sm" else 704
+            b = 768
+            suffix = "-".join(LANG_SHORT[l] for l in langs)
+            CONFIGS[f"barlip-00{v}-{size}-{suffix}"] = {
+                "seed": seed,
+                "device": "cuda",
+                "max_epochs": 24,
+                "warmup_epochs": 4,
+                "n_saved": 5,
+                "log_every_iters": 5,
+                "optimizer": {
+                    "lr": 4e-5,
+                    "weight_decay": 5e-7,
+                },
+                "data": {
+                    "feature_type_audio": "wavlm-base-plus",
+                    "feature_type_image": "dino-resnet50",
+                    "langs": langs,
+                    "num_workers": 12,
+                    "batch_size": b,
+                },
+                "model": {
+                    "model_name": "barlip",
+                    "embed_dim": e,
+                    "λ": 0.005,
+                    "audio_encoder_kwargs": {
+                        "type": "transformer",
+                        "input_dim": 768,
+                        "width": e,
+                    },
+                    "image_encoder_kwargs": {
+                        "input_dim": 2048,
+                        "width": e,
+                        "backbone_type": "identity",
+                        "to_freeze_backbone": None,
+                        "use_pretrained_backbone": None,
+                    },
+                },
+            }
