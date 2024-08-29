@@ -25,10 +25,12 @@ from ignite.handlers.tensorboard_logger import (
 from mevgs.config import CONFIGS
 from mevgs.data import (
     collate_nested,
+    collate_nested_two_audios,
     collate_with_audio,
     PairedMEDataset,
     PairedTestDataset,
     SimplePairedMEDataset,
+    TripletMEDataset,
 )
 from mevgs.model import setup_model
 
@@ -80,7 +82,7 @@ def unwrap_model(model):
         return model
 
 
-class UtilsTraining:
+class UtilsDefaultTraining:
     @staticmethod
     def prepare_batch_fn(batch, device, non_blocking):
         batch = {k: convert_tensor(v, device, non_blocking) for k, v in batch.items()}
@@ -102,6 +104,22 @@ class UtilsTraining:
     @staticmethod
     def get_metrics(device):
         return {"loss": Loss(identity_loss, device=device)}
+
+
+class UtilsTwoAudiosTraining(UtilsDefaultTraining):
+    @staticmethod
+    def prepare_batch_fn(batch, device, non_blocking):
+        batch = {k: convert_tensor(v, device, non_blocking) for k, v in batch.items()}
+        inp = (
+            batch["audio1"],
+            batch["audio1-length"],
+            batch["audio2"],
+            batch["audio2-length"],
+            batch["image"],
+            batch["label"],
+        )
+        out = batch["label"]
+        return inp, out
 
 
 class UtilsPairedTest:
@@ -141,6 +159,22 @@ def setup_data_nested(*, num_workers, batch_size, **kwargs_ds):
         "num_workers": num_workers,
         "batch_size": batch_size,
         "collate_fn": collate_nested,
+    }
+
+    train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl, shuffle=True)
+    valid_dataloader = idist.auto_dataloader(valid_dataset, **kwargs_dl)
+
+    return train_dataloader, valid_dataloader
+
+
+def setup_data_nested_two_audios(*, num_workers, batch_size, **kwargs_ds):
+    train_dataset = TripletMEDataset(split="train", **kwargs_ds)
+    valid_dataset = TripletMEDataset(split="valid", **kwargs_ds)
+
+    kwargs_dl = {
+        "num_workers": num_workers,
+        "batch_size": batch_size,
+        "collate_fn": collate_nested_two_audios,
     }
 
     train_dataloader = idist.auto_dataloader(train_dataset, **kwargs_dl, shuffle=True)
@@ -191,6 +225,14 @@ SETUP_DATA_FUNCS = {
     "clip": setup_data_nested,
     "mattnet": setup_data_nested,
     "barlip": setup_data_simple,
+    "clip-two-audios": setup_data_nested_two_audios,
+}
+
+UTILS_TRAINING_CLASSES = {
+    "clip": UtilsDefaultTraining,
+    "mattnet": UtilsDefaultTraining,
+    "barlip": UtilsDefaultTraining,
+    "clip-two-audios": UtilsTwoAudiosTraining,
 }
 
 
@@ -204,8 +246,10 @@ def train(local_rank, config_name: str):
     output_dir.mkdir(parents=True, exist_ok=True)
     # config.output_dir = output_dir
 
-    world_size = idist.get_world_size()
     setup_data = SETUP_DATA_FUNCS[config["model"]["model_name"]]
+    UtilsTraining = UTILS_TRAINING_CLASSES[config["model"]["model_name"]]
+
+    world_size = idist.get_world_size()
     dataloader_train, dataloader_valid = setup_data(**config["data"])
     dataloaders = setup_data_paired_test(
         batch_size=world_size * 16,
@@ -314,8 +358,12 @@ def train(local_rank, config_name: str):
     def get_results_per_lang(lang, evaluators):
         return "{} → FF: {:.3f} · NF: {:.3f}".format(
             lang,
-            evaluators["familiar-familiar"].state.metrics[f"{lang}/accuracy-familiar-familiar"],
-            evaluators["novel-familiar"].state.metrics[f"{lang}/accuracy-novel-familiar"],
+            evaluators["familiar-familiar"].state.metrics[
+                f"{lang}/accuracy-familiar-familiar"
+            ],
+            evaluators["novel-familiar"].state.metrics[
+                f"{lang}/accuracy-novel-familiar"
+            ],
         )
 
     # Run evaluation at every training epoch end with shortcut `on` decorator
@@ -337,8 +385,7 @@ def train(local_rank, config_name: str):
                     trainer.state.iteration,
                     evaluator.state.metrics["loss"],
                     " ◇ ".join(
-                        get_results_per_lang(lang, evaluators[lang])
-                        for lang in langs
+                        get_results_per_lang(lang, evaluators[lang]) for lang in langs
                     ),
                 )
             )

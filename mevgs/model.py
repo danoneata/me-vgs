@@ -623,10 +623,60 @@ class BarLIP(nn.Module):
         return scores
 
 
+class CLIPTwoAudios(CLIP):
+    def compute_audio_emb(self, audio, audio_length, B, N):
+        audio = audio.view(B * N, *audio.shape[2:])
+        audio_length = audio_length.view(B * N)
+        audio_emb = self.audio_enc(audio, audio_length)
+        audio_emb = audio_emb.view(B, N, *audio_emb.shape[1:])
+        return audio_emb
+
+    def compute_image_emb(self, image, B, N):
+        image = image.view(B * N, *image.shape[2:])
+        image_emb = self.image_enc(image)
+        image_emb = image_emb.view(B, N, *image_emb.shape[1:])
+        return image_emb
+
+    def compute_loss(self, emb1, emb2, labels):
+        B = emb1.shape[0]
+
+        # assume one positive per batch and all positives are in first position
+        assert labels.sum() == B
+        assert labels[:, 0].sum() == B
+        assert labels[:, 1:].sum() == 0
+
+        sim1 = self.score_emb(emb1[:, :1], emb2, "pair-and-cross")
+        sim1 = sim1.squeeze(1)
+        sim2 = self.score_emb(emb1, emb2[:, :1], "pair-and-cross")
+        sim2 = sim2.squeeze(2)
+
+        pred = torch.cat([sim1, sim2], dim=0)
+        true = torch.zeros(2 * B).to(labels.device).long()
+        return F.cross_entropy(pred, true)
+
+    def forward(self, audio1, audio1_length, audio2, audio2_length, image, labels):
+        B0, N0, *_ = audio1.shape
+        B1, N1, *_ = audio2.shape
+        B2, N2, *_ = image.shape
+
+        assert B0 == B1 == B2 and N0 == N1 == N2
+        B = B0
+        N = N0
+
+        audio1_emb = self.compute_audio_emb(audio1, audio1_length, B, N)
+        audio2_emb = self.compute_audio_emb(audio2, audio2_length, B, N)
+        image_emb = self.compute_image_emb(image, B, N)
+
+        loss1 = self.compute_loss(audio1_emb, image_emb, labels)
+        loss2 = self.compute_loss(audio2_emb, image_emb, labels)
+        loss3 = self.compute_loss(audio1_emb, audio2_emb, labels)
+        return (loss1 + loss2 + loss3) / 3
+
 
 MODELS = {
     "mattnet": MattNet,
     "clip": CLIP,
+    "clip-two-audios": CLIPTwoAudios,
     "barlip": BarLIP,
 }
 

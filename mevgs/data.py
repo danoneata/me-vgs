@@ -379,6 +379,147 @@ class PairedMEDataset(Dataset):
         return len(self.word_audio)
 
 
+class TripletMEDataset(Dataset):
+    def __init__(
+        self,
+        split,
+        langs,
+        num_pos: int,
+        num_neg: int,
+        feature_type_audio: str,
+        feature_type_image: str,
+        # num_word_repeats: int,
+        to_fix_validation_samples: bool = True,
+    ):
+        super(TripletMEDataset).__init__()
+
+        assert split in ("train", "valid")
+        assert len(langs) in {1, 2}
+
+        lang1, *lang2 = langs
+
+        if len(lang2) == 0:
+            lang2 = lang1
+        elif len(lang2) == 1:
+            lang2 = lang2[0]
+        else:
+            assert False
+
+        self.lang1 = lang1
+        self.lang2 = lang2
+
+        self.split = split
+        self.dataset = MEDataset(split, langs)
+
+        self.n_pos = num_pos
+        self.n_neg = num_neg
+
+        # num_word_repeats = num_word_repeats if split == "train" else 1
+        # words_seen = self.dataset.words_seen
+        # self.words = [word for word in words_seen for _ in range(num_word_repeats)]
+
+        # Use Leanne's order
+        self.word_audio = [
+            (word, audio)
+            for word, audios in self.dataset.word_to_audios.items()
+            for audio in audios
+            # if audio["lang"] == lang1
+        ]
+        self.word_audio = sorted(self.word_audio, key=lambda x: x[0])
+        self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
+        self.load_image = get_image_loader(feature_type_image, split)
+
+        self.word_to_audios_per_lang = {
+            lang: group_by_word(
+                [audio for audio in self.dataset.audio_files if audio["lang"] == lang]
+            )
+            for lang in langs
+        }
+
+        # if split == "valid" and to_fix_validation_samples:
+        #     suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
+        #     path = f"data/filelists/validation-samples-{suffix}.json"
+        #     with open(path, "r") as f:
+        #         validation_samples = json.load(f)
+        #     self.get_positives_and_negatives = lambda i: validation_samples[i]
+
+    def get_other_lang(self, lang):
+        return self.lang2 if lang == self.lang1 else self.lang1
+
+    def get_positives_and_negatives(self, i):
+        def sample_neg(data, word):
+            words = set(self.dataset.words_seen) - set([word])
+            words = random.choices(list(words), k=self.n_neg)
+            return [random.choice(data[word]) for word in words]
+
+        word, audio1_pos = self.word_audio[i]
+        lang1 = audio1_pos["lang"]
+        lang2 = self.get_other_lang(lang1)
+
+        images_pos = random.choices(self.dataset.word_to_images[word], k=self.n_pos)
+        images_neg = sample_neg(self.dataset.word_to_images, word)
+
+        audios1_pos = random.choices(
+            self.word_to_audios_per_lang[lang1][word],
+            k=self.n_pos - 1,
+        )
+        audios1_pos = [audio1_pos] + audios1_pos
+        audios1_neg = sample_neg(self.word_to_audios_per_lang[lang1], word)
+
+        audios2_pos = random.choices(
+            self.word_to_audios_per_lang[lang2][word],
+            k=self.n_pos,
+        )
+        audios2_neg = sample_neg(self.word_to_audios_per_lang[lang2], word)
+
+        return {
+            "audios1-pos": audios1_pos,
+            "audios1-neg": audios1_neg,
+            "audios2-pos": audios2_pos,
+            "audios2-neg": audios2_neg,
+            "images-pos": images_pos,
+            "images-neg": images_neg,
+        }
+
+    def __getitem__(self, i):
+        samples = self.get_positives_and_negatives(i)
+
+        data_pos = [
+            {
+                "index": i,
+                "image": self.load_image(image_name),
+                "audio1": self.load_audio(audio1_name),
+                "audio2": self.load_audio(audio2_name),
+                "label": 1,
+            }
+            for image_name, audio1_name, audio2_name in zip(
+                samples["images-pos"],
+                samples["audios1-pos"],
+                samples["audios2-pos"],
+            )
+        ]
+
+        data_neg = [
+            {
+                "index": i,
+                "image": self.load_image(image_name),
+                "audio1": self.load_audio(audio1_name),
+                "audio2": self.load_audio(audio2_name),
+                "label": 0,
+            }
+            for image_name, audio1_name, audio2_name in zip(
+                samples["images-neg"],
+                samples["audios1-neg"],
+                samples["audios2-neg"],
+            )
+        ]
+
+        return data_pos + data_neg
+
+    def __len__(self):
+        return len(self.word_audio)
+
+
 class PairedTestDataset(Dataset):
     def __init__(self, langs, feature_type_audio, feature_type_image, test_name):
         # assert test_name in {"familiar-familiar", "novel-familiar"}
@@ -406,13 +547,19 @@ class PairedTestDataset(Dataset):
         return len(self.data_pairs)
 
 
-def collate_with_audio(batch):
-    audio = pad_sequence([datum["audio"].T for datum in batch], batch_first=True)
+
+def collate_audio(batch, key="audio"):
+    audio = pad_sequence([datum[key].T for datum in batch], batch_first=True)
     audio = audio.permute(0, 2, 1)
-    audio_length = torch.tensor([datum["audio"].shape[1] for datum in batch])
+    audio_length = torch.tensor([datum[key].shape[1] for datum in batch])
+    return {key: audio, f"{key}-length": audio_length}
+
+
+def collate_with_audio(batch):
+    audio = collate_audio(batch, key="audio")
     rest = [dissoc(datum, "audio") for datum in batch]
     rest = default_collate(rest)
-    return {"audio": audio, "audio-length": audio_length, **rest}
+    return {**audio, **rest}
 
 
 def collate_nested(batch):
@@ -423,10 +570,22 @@ def collate_nested(batch):
     return {key: data.view(B, N, *data.shape[1:]) for key, data in batch.items()}
 
 
+def collate_nested_two_audios(batch):
+    B = len(batch)
+    N = len(batch[0])
+    batch = [datum for data in batch for datum in data]
+    audio1 = collate_audio(batch, key="audio1")
+    audio2 = collate_audio(batch, key="audio2")
+    rest = [dissoc(datum, "audio1", "audio2") for datum in batch]
+    rest = default_collate(rest)
+    batch = {**audio1, **audio2, **rest}
+    return {key: data.view(B, N, *data.shape[1:]) for key, data in batch.items()}
+
+
 if __name__ == "__main__":
     num_pos = 1
     num_neg = 9
-    dataset = PairedMEDataset(
+    dataset = TripletMEDataset(
         split="train",
         langs=("english", "french"),
         num_pos=num_pos,
@@ -438,7 +597,7 @@ if __name__ == "__main__":
         dataset,
         num_workers=0,
         batch_size=4,
-        collate_fn=collate_nested,
+        collate_fn=collate_nested_two_audios,
     )
 
     for batch in dataloader:

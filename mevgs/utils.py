@@ -1,4 +1,5 @@
 import json
+import numpy as np
 
 
 def read_file(path, parse_fn=lambda x: x.strip()):
@@ -19,4 +20,13 @@ def cache_json(path, func, *args, **kwargs):
         result = func(*args, **kwargs)
         with open(path, "w") as f:
             json.dump(result, f)
+        return result
+
+
+def cache_np(path, func, *args, **kwargs):
+    try:
+        return np.load(path)
+    except FileNotFoundError:
+        result = func(*args, **kwargs)
+        np.save(path, result)
         return result
