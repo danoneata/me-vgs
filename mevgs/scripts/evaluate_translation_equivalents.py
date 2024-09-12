@@ -1,4 +1,6 @@
 import pdb
+import sys
+
 import json
 import numpy as np
 import pandas as pd
@@ -12,7 +14,7 @@ from mevgs.scripts.show_intra_audio_sim_lang_links import extract_embeddings
 LANGS = ("english", "french")
 
 
-def evaluate_model(model_spec):
+def evaluate_model(model_spec, score_type):
 
     def load_audios(lang):
         path = f"output/scripts-cache/selected-audios-{lang}.json"
@@ -48,16 +50,37 @@ def evaluate_model(model_spec):
         ]
         return X, y
 
+    def l2_normalize(X):
+        return X / np.linalg.norm(X, axis=1)[:, None]
+
     def eval1(lang_src, lang_tgt):
         X_tr, y_tr = get_X_y(lang_src)
         X_te, y_te = get_X_y(lang_tgt)
         ncm = NearestCentroid()
-        return ncm.fit(X_tr, y_tr).score(X_te, y_te)
-        # ncm.fit(X_tr, y_tr)
-        # class_to_centroid = {cls: centroid for cls, centroid in zip(ncm.classes_, ncm.centroids_)}
-        # C_te = [class_to_centroid[cls] for cls in y_te]
-        # C_te = np.array(C_te)
-        # return np.einsum("ij,ij->i", X_te, C_te).mean()
+        ncm.fit(X_tr, y_tr)
+        ncm.centroids_ = l2_normalize(ncm.centroids_)
+
+        def get_accuracy():
+            # import scipy.spatial as sp
+            # sim = 1 - sp.distance.cdist(X_te, ncm.centroids_, "cosine")
+            # y_pred = sim.argmax(axis=1)
+            # y_pred = ncm.classes_[y_pred]
+            # return (y_pred == y_te).mean()
+            return ncm.score(X_te, y_te)
+
+        def get_cos_sim():
+            class_to_centroid = {cls: centroid for cls, centroid in zip(ncm.classes_, ncm.centroids_)}
+            C_te = [class_to_centroid[cls] for cls in y_te]
+            C_te = np.array(C_te)
+            cos_sim = np.einsum("ij,ij->i", X_te, C_te)
+            return cos_sim.mean()
+
+        SCORE_FNS = {
+            "accuracy": get_accuracy,
+            "cos-sim": get_cos_sim,
+        }
+        return SCORE_FNS[score_type]()
+
 
     en_to_fr = 100 * eval1("english", "french")
     fr_to_en = 100 * eval1("french", "english")
@@ -72,8 +95,9 @@ def evaluate_model(model_spec):
 
 
 if __name__ == "__main__":
+    eval_type = sys.argv[1]
     results = [
-        evaluate_model(f"en-fr{l}-{v}")
+        evaluate_model(f"en-fr{l}-{v}", eval_type)
         for l in ("", "-links")
         for v in "abcde"
     ]
