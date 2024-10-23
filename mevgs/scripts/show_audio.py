@@ -18,8 +18,12 @@ EN_TO_XX = {
 dataset = MEDataset(split, (lang,))
 for word_en, audios in dataset.word_to_audios.items():
     word = EN_TO_XX[lang][word_en]
+    # audios = [audio for audio in audios if len(audio["name"].split("_")) == 2 and audio["name"].split("_")[1].startswith("fn")]
     st.markdown("### {} → {} ◇ num. audios: {}".format(word_en, word, len(audios)))
-    audios_sample = random.sample(audios, num_samples)
+    if len(audios) > num_samples:
+        audios_sample = random.sample(audios, num_samples)
+    else:
+        audios_sample = audios
     for audio in audios_sample:
         path = get_audio_path(audio)
         st.markdown("`{}`".format(path))
