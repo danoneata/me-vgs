@@ -1,0 +1,8 @@
+{
+    "verboseOutput": true,
+    "exclude": [
+        "data/*",
+        "checkpoints/*",
+        "output/*"
+    ]
+}
