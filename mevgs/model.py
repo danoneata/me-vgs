@@ -1,9 +1,11 @@
 import math
-import torch
 
 from functools import partial
+from toolz import dissoc
 
+import torch
 import torch.nn as nn
+
 from torch.nn import functional as F
 from torch.nn.utils.rnn import (
     pack_padded_sequence,
@@ -316,9 +318,10 @@ class MattNet(nn.Module):
             "features-avg": self.score_emb_pool_features_avg,
             "scores-max": self.score_emb_pool_scores_max,
         }
-        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        audio_encoder_type = audio_encoder_kwargs["type"]
+        audio_encoder_kwargs_1 = dissoc(audio_encoder_kwargs, "type")
         self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
-            output_dim=embed_dim, **audio_encoder_kwargs
+            output_dim=embed_dim, **audio_encoder_kwargs_1
         )
         self.image_enc = ImageEncoder(output_dim=embed_dim, **image_encoder_kwargs)
         self.score_emb = SCORE_EMB_FUNCS[pooling]
@@ -443,10 +446,11 @@ class MattNet(nn.Module):
 class CLIP(nn.Module):
     def __init__(self, embed_dim, audio_encoder_kwargs, image_encoder_kwargs):
         super(CLIP, self).__init__()
-        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        audio_encoder_type = audio_encoder_kwargs["type"]
+        audio_encoder_kwargs_1 = dissoc(audio_encoder_kwargs, "type")
         self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
             output_dim=embed_dim,
-            **audio_encoder_kwargs,
+            **audio_encoder_kwargs_1,
         )
         self.image_enc = ImageEncoder(
             output_dim=embed_dim,
@@ -548,10 +552,11 @@ class CLIP(nn.Module):
 class BarLIP(nn.Module):
     def __init__(self, embed_dim, audio_encoder_kwargs, image_encoder_kwargs, λ):
         super(BarLIP, self).__init__()
-        audio_encoder_type = audio_encoder_kwargs.pop("type")
+        audio_encoder_type = audio_encoder_kwargs["type"]
+        audio_encoder_kwargs_1 = dissoc(audio_encoder_kwargs, "type")
         self.audio_enc = AUDIO_ENCODERS[audio_encoder_type](
             output_dim=embed_dim,
-            **audio_encoder_kwargs,
+            **audio_encoder_kwargs_1,
         )
         self.image_enc = ImageEncoder(
             output_dim=embed_dim,
