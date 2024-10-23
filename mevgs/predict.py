@@ -6,6 +6,7 @@ from functools import partial
 from pathlib import Path
 from tqdm import tqdm
 
+import numpy as np
 import streamlit as st
 import torch
 
@@ -132,9 +133,9 @@ def score_pair(model, datum, device):
     }
 
 
-def evaluate_model_batched(config, lang, test_name, model, device):
+def predict_model_batched(config, lang, test_name, model, device):
     dataset = PairedTestDataset(
-        (lang, ),
+        (lang,),
         config["data"]["feature_type_audio"],
         config["data"]["feature_type_image"],
         test_name,
@@ -156,8 +157,22 @@ def evaluate_model_batched(config, lang, test_name, model, device):
             for batch in tqdm(dataloader)
         ]
     preds = torch.cat(preds, dim=0)
-    is_correct = (preds[:, 0] > preds[:, 1]).float()
-    return 100 * torch.mean(is_correct).item()
+    return [
+        {
+            "audio": datum["audio"]["word-en"],
+            "image-pos": datum["image-pos"]["word-en"],
+            "image-neg": datum["image-neg"]["word-en"],
+            "pred": pred.argmax().item(),
+            "is-correct": int(pred.argmax().item() == 0),
+        }
+        for pred, datum in zip(preds, dataset.data_pairs)
+    ]
+
+
+def evaluate_model_batched(config, lang, test_name, model, device):
+    preds = predict_model_batched(config, lang, test_name, model, device)
+    is_correct = [pred["is-correct"] for pred in preds]
+    return 100 * np.mean(is_correct).item()
 
 
 def evaluate_model_ignite(config, test_name, model, device):
