@@ -33,12 +33,21 @@ def count_train_and_valid():
     print(df[column_order].to_csv(index=False))
 
 
+def count_train_images():
+    data = read_json("data/filelists/image-train.json")
+    data = [datum["word-en"] for datum in data]
+    words = sorted(set(data))
+    counts = Counter(data)
+    for word in words:
+        print(f"{word},{counts[word]}")
+
+
 def count_novel():
     words = read_file("data/words-unseen.txt")
     print(words)
 
 
-def count_in_files(lang):
+def load_words(lang):
     LANG_INDEX = {
         "english": 0,
         "dutch": 1,
@@ -52,16 +61,22 @@ def count_in_files(lang):
     def translate(words):
         return [en_to_x.get(word, word) for word in words]
 
-    words = {
+    return {
         "seen": translate(read_file("data/words-seen.txt")),
         "unseen": translate(read_file("data/words-unseen.txt")),
     }
+
+
+def count_in_files(lang):
+    words = load_words(lang)
 
     files = Path(f"data/{lang}_words").iterdir()
     words_in_files = [file.stem.split("_")[0] for file in files]
     counts = Counter(words_in_files)
 
-    words["other"] = sorted(list(set(counts.keys()) - set(words["seen"] + words["unseen"])))
+    words["other"] = sorted(
+        list(set(counts.keys()) - set(words["seen"] + words["unseen"]))
+    )
 
     for t in "seen", "unseen", "other":
         for word in words[t]:
@@ -69,16 +84,35 @@ def count_in_files(lang):
 
 
 def compare_counts():
-    data1 = {split: read_json(f"data/filelists/audio-{split}.json") for split in ("train", "valid", "test")}
-    data2 = {split: read_json(f"data/filelists/audio-{split}-2.json") for split in ("train", "valid", "test")}
-    words = {split: set(datum["word-en"] for datum in data2[split]) for split in ("train", "valid", "test")}
+    data1 = {
+        split: read_json(f"data/filelists/audio-{split}.json")
+        for split in ("train", "valid", "test")
+    }
+    data2 = {
+        split: read_json(f"data/filelists/audio-{split}-2.json")
+        for split in ("train", "valid", "test")
+    }
+    words = {
+        split: set(datum["word-en"] for datum in data2[split])
+        for split in ("train", "valid", "test")
+    }
     for split in ("train", "valid", "test"):
         for lang in ("english", "dutch", "french"):
             for word in words[split]:
-                count1 = sum(1 for datum in data1[split] if datum["lang"] == lang and datum["word-en"] == word)
-                count2 = sum(1 for datum in data2[split] if datum["lang"] == lang and datum["word-en"] == word)
+                count1 = sum(
+                    1
+                    for datum in data1[split]
+                    if datum["lang"] == lang and datum["word-en"] == word
+                )
+                count2 = sum(
+                    1
+                    for datum in data2[split]
+                    if datum["lang"] == lang and datum["word-en"] == word
+                )
                 print(f"{split} {lang} {word}: {count1} → {count2}")
 
 
-# count_in_files("dutch")
-compare_counts()
+if __name__ == "__main__":
+    count_in_files("dutch")
+    # compare_counts()
+    # count_train_images()
