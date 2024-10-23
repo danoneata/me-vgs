@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import pandas as pd
 
 
 def read_file(path, parse_fn=lambda x: x.strip()):
@@ -29,4 +30,22 @@ def cache_np(path, func, *args, **kwargs):
     except FileNotFoundError:
         result = func(*args, **kwargs)
         np.save(path, result)
+        return result
+
+
+def cache_csv(path, func, *args, **kwargs):
+    try:
+        return pd.read_csv(path)
+    except FileNotFoundError:
+        result = func(*args, **kwargs)
+        result.to_csv(path, index=False, header=False)
+        return result
+
+
+def cache_df(path, func, *args, **kwargs):
+    try:
+        return pd.read_pickle(path)
+    except FileNotFoundError:
+        result = func(*args, **kwargs)
+        result.to_pickle(path)
         return result
