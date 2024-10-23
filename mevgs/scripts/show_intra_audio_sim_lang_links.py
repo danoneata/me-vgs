@@ -1,6 +1,8 @@
 import random
 import pdb
 
+from copy import deepcopy
+
 import click
 import numpy as np
 import pandas as pd
@@ -57,6 +59,28 @@ MODEL_SPECS = {
 }
 
 
+LINKS_SUFFIX = {
+    False: "",
+    True: "-links",
+}
+
+
+LINKS_TO_BILINGUAL_CONFIG = {
+    False: "26{}-en-fr",
+    True: "clip-lang-links-{}-md-en-fr",
+}
+
+
+for v in "abcde":
+    for links in [False, True]:
+        suffix = LINKS_SUFFIX[links]
+        MODEL_SPECS[f"en-fr{suffix}-{v}"] = {
+            "num-langs": 2,
+            "lang-links": links,
+            "config-name": LINKS_TO_BILINGUAL_CONFIG[links].format(v),
+        }
+
+
 def select_audios(dataset, num_audios_per_word):
     words = dataset.words_seen + dataset.words_unseen
     audios = (
@@ -69,6 +93,7 @@ def select_audios(dataset, num_audios_per_word):
 def extract_embeddings(dataset, audios, model_spec):
     config_name = MODEL_SPECS[model_spec]["config-name"]
     config = CONFIGS[config_name]
+    config = deepcopy(config)
 
     feature_type_audio = config["data"]["feature_type_audio"]
     load_audio = AudioFeaturesLoader(feature_type_audio, SPLIT, dataset.langs)
