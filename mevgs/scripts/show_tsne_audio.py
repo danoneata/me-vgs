@@ -180,5 +180,11 @@ fig, ax = plt.subplots(figsize=(6, 6))
 make_plot("en-fr", "familiar", ax)
 clean_axes(ax)
 st.pyplot(fig)
-fig.savefig("output/plots/tsne-audio-familiar.pdf")
-fig.savefig("output/plots/tsne-audio-familiar.png")
+
+fig, ax = plt.subplots(figsize=(6, 6))
+make_plot("en-fr-links", "familiar", ax)
+clean_axes(ax)
+st.pyplot(fig)
+
+# fig.savefig("output/plots/tsne-audio-familiar.pdf")
+# fig.savefig("output/plots/tsne-audio-familiar.png")
