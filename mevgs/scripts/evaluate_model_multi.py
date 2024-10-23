@@ -1,6 +1,6 @@
 import sys
 import pandas as pd
-from mevgs.predict import CONFIGS, MODELS, evaluate_model_batched, evaluate_model, evaluate_model_ignite
+from mevgs.predict import CONFIGS, MODELS, evaluate_model_batched, predict_model_batched
 
 model_name_generic = sys.argv[1]
 
