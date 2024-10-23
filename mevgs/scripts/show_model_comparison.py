@@ -13,7 +13,7 @@ import torch
 
 from matplotlib import pyplot as plt
 from mevgs.data import AudioFeaturesLoader, MEDataset, Language, load_dictionary
-from mevgs.utils import cache_np, cache_json, read_json
+from mevgs.utils import cache_df, cache_np, cache_json, read_json
 from mevgs.scripts.prepare_predictions_for_yevgen import load_model_and_config
 
 
@@ -119,7 +119,7 @@ def compare_results(model_params_1, model_params_2, test_lang):
     sns.move_legend(ax, "upper left")
 
     st.markdown("## Per seed accuracy")
-    st.pyplot(fig, use_container_width=False)
+    st.pyplot(fig)
 
     scores_per_concept = (
         100 * preds.groupby(["model", "seed", "audio"])["is-correct"].mean()
@@ -157,7 +157,7 @@ def compare_results(model_params_1, model_params_2, test_lang):
     # fig.set_tight_layout()
 
     st.markdown("## Per concept accuracy")
-    st.pyplot(fig, use_container_width=False)
+    st.pyplot(fig)
 
     st.markdown("---")
 
@@ -186,8 +186,14 @@ def compute_audio_embeddings(model_name, test_lang, audio_data, seed):
     return embs.cpu().numpy()
 
 
-def show_audio_similarities(model_params, test_lang):
+def show_audio_similarities(model_params, test_lang, seed, ax):
     random.seed(1337)
+
+    model_name = "{}_links-{}_size-{}".format(
+        "-".join(model_params["train-langs"]),
+        model_params["has-links"],
+        model_params["model-size"],
+    )
 
     def get_sample(group, n):
         group = list(group)
@@ -206,78 +212,80 @@ def show_audio_similarities(model_params, test_lang):
             for datum in get_sample(group, n)
         ]
 
-    n = 30
-    dataset = MEDataset("test", LANGS_LONG)  # type: ignore
-    path = f"output/show-model-comparison/audio-data-ss-{n}.json"
-    data = cache_json(path, load_audio_data_subset, dataset, n=n)
+    def find_indices(data, w):
+        return [
+            i
+            for i, datum in enumerate(data)
+            if datum["lang"] == LANG_SHORT_TO_LONG[w["lang"]]
+            and datum["word-en"] == w["word-en"]
+        ]
 
-    model_name = "{}_links-{}_size-{}".format(
-        "-".join(model_params["train-langs"]),
-        model_params["has-links"],
-        model_params["model-size"],
-    )
-    embs = cache_np(
-        f"output/show-model-comparison/embeddings/{model_name}_seed-a.npy",
-        compute_audio_embeddings,
-        model_name=model_name,
-        test_lang=test_lang,
-        audio_data=data,
-        seed="a",
-    )
-
-    def find_indices(w):
-        return [i for i, datum in enumerate(data) if datum["lang"] == LANG_SHORT_TO_LONG[w["lang"]] and datum["word-en"] == w["word-en"]]
-
-    def compute_similarity(w1, w2, emb):
-        idxs1 = find_indices(w1)
-        idxs2 = find_indices(w2)
+    def compute_similarity(data, w1, w2, emb):
+        idxs1 = find_indices(data, w1)
+        idxs2 = find_indices(data, w2)
         sims = emb[idxs1] @ emb[idxs2].T
         return np.mean(sims)
 
-    words_tr = [
-        {
-            "lang": lang,
-            "word-en": word,
-        }
-        for lang in model_params["train-langs"]
-        for word in dataset.words_seen
-    ]
-    words_te = [
-        {
-            "lang": test_lang,
-            "word-en": word,
-        }
-        for word in dataset.words_unseen
-    ]
-
-    words = load_dictionary()
-
-    def get_word_str(w):
+    def get_word_str(vocab, w):
         if w["lang"] == "en":
             return w["word-en"]
         else:
             word = w["word-en"]
             lang = w["lang"]
             lang_long = LANG_SHORT_TO_LONG[lang]
-            word_trans = first(entry[lang_long] for entry in words if entry["english"] == word)
+            word_trans = first(
+                entry[lang_long] for entry in vocab if entry["english"] == word
+            )
             return "{} ({})".format(word, word_trans)
 
-    similarities = [
-        {
-            "word tr": get_word_str(w1),
-            "word te": get_word_str(w2),
-            "similarity": compute_similarity(w1, w2, embs),
-        }
-        for w1 in words_tr
-        for w2 in words_te
-    ]
-    df = pd.DataFrame(similarities)
+    def compute_similarities():
+        n = 30
+        dataset = MEDataset("test", LANGS_LONG)  # type: ignore
+        path = f"output/show-model-comparison/audio-data-ss-{n}.json"
+        data = cache_json(path, load_audio_data_subset, dataset, n=n)
 
-    df = df.pivot(index="word tr", columns="word te", values="similarity")
-    S = 0.8
-    h = len(words_tr) * S
-    w = len(words_te) * S
-    fig, ax = plt.subplots(figsize=(w, h))
+        embs = cache_np(
+            f"output/show-model-comparison/embeddings/{model_name}_seed-{seed}.npy",
+            compute_audio_embeddings,
+            model_name=model_name,
+            test_lang=test_lang,
+            audio_data=data,
+            seed=seed,
+        )
+
+        words_tr = [
+            {
+                "lang": lang,
+                "word-en": word,
+            }
+            for lang in model_params["train-langs"]
+            for word in dataset.words_seen
+        ]
+        words_te = [
+            {
+                "lang": test_lang,
+                "word-en": word,
+            }
+            for word in dataset.words_unseen
+            if word != "nautilus"
+        ]
+
+        vocab = load_dictionary()
+        similarities = [
+            {
+                "word train": get_word_str(vocab, w1),
+                "word test": get_word_str(vocab, w2),
+                "similarity": compute_similarity(data, w1, w2, embs),
+            }
+            for w1 in words_tr
+            for w2 in words_te
+        ]
+        return pd.DataFrame(similarities)
+
+    path = f"output/show-model-comparison/similarities/{model_name}_seed-{seed}.pkl"
+    df = cache_df(path, compute_similarities)
+    df = df.pivot(index="word train", columns="word test", values="similarity")
+
     sns.heatmap(
         df,
         annot=True,
@@ -288,23 +296,43 @@ def show_audio_similarities(model_params, test_lang):
         # cmap="bwr",
         square=True,
         cbar=False,
+        # annot_kws={"fontsize": 10},
         ax=ax,
     )
-    fig.tight_layout()
-    return fig
 
 
 def compare_embeddings(model_params_1, model_params_2, test_lang):
-    fig1 = show_audio_similarities(model_params_1, test_lang)
-    fig2 = show_audio_similarities(model_params_2, test_lang)
-    # cols = st.columns(2)
-    st.markdown("Model 1")
-    st.pyplot(fig1)
-    st.markdown("---")
+    st.markdown("## Audio embeddings")
+    col1, cols = st.columns(2)
+    SEEDS = "abcde"
+    SEEDS_NUM = range(5)
+    seed1 = col1.selectbox("Seed for model 1:", SEEDS_NUM)
+    seed2 = cols.selectbox("Seed for model 2:", SEEDS_NUM)
 
-    st.markdown("Model 2")
-    st.pyplot(fig2)
-    st.markdown("---")
+    S = 0.78
+    n_langs_1 = len(model_params_1["train-langs"])
+    n_langs_2 = len(model_params_2["train-langs"])
+    n_words_tr = 13 * (n_langs_1 + n_langs_2)
+    n_words_te = 19
+    h = n_words_tr * S
+    w = n_words_te * S
+    fig, axs = plt.subplots(
+        nrows=2,
+        sharex=False,
+        figsize=(w, h),
+        gridspec_kw={
+            "height_ratios": [n_langs_1, n_langs_2],
+            # "hspace": 0.15,
+        },
+    )
+
+    axs[0].set_title("Model 1")
+    show_audio_similarities(model_params_1, test_lang, SEEDS[seed1], axs[0])
+    axs[1].set_title("Model 2")
+    show_audio_similarities(model_params_2, test_lang, SEEDS[seed2], axs[1])
+
+    fig.tight_layout()
+    st.pyplot(fig)
 
 
 def main():
