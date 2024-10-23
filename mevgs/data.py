@@ -217,7 +217,7 @@ class MEDataset:
         self.words_unseen = read_file("data/words-unseen.txt")
 
         image_files = read_json(f"data/filelists/image-{split}.json")
-        audio_files = read_json(f"data/filelists/audio-{split}-2.json")
+        audio_files = read_json(f"data/filelists/audio-{split}-3.json")
         audio_files = [datum for datum in audio_files if datum["lang"] in langs]
 
         self.image_files = image_files

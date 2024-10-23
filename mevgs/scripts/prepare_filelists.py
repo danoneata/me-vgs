@@ -406,6 +406,7 @@ def prepare_validation_samples(langs, num_pos, num_neg):
     with open(f"data/filelists/validation-samples-{suffix}.json", "w") as f:
         json.dump(samples, f, indent=2)
 
+
 def prepare_validation_samples_simple(langs):
     # Fix the validation samples to ensure comparable results across runs.
     feature_type_audio = "wavlm-base-plus"
@@ -423,6 +424,51 @@ def prepare_validation_samples_simple(langs):
         json.dump(samples, f, indent=2)
 
 
+def prepare_audio_filelists_3():
+    """Updates the Dutch audio filelists to account for the realignment of the
+    MLS dataset. Given that not all audio files were used in the MLS dataset,
+    we replace the missing audio with other audio files corresponding to the
+    same word.
+
+    """
+    import os
+    SPLITS = ("train", "valid", "test")
+    path = "data/filelists/audio-{}-2.json"
+    data = {split: read_json(path.format(split)) for split in SPLITS}
+    names_dutch = [datum["name"] for split in SPLITS for datum in data[split] if datum["lang"] == "dutch"]
+    names_dutch_files = [f.split(".")[0] for f in os.listdir("data/dutch_words")]
+    names_dutch_files = set(names_dutch_files)
+
+    unused = names_dutch_files - set(names_dutch)
+    unused = list(unused)
+    print(len(unused))
+
+    def pick_unused(name):
+        word, *_ = name.split("_")
+        indices = [i for i, n in enumerate(unused) if n.split("_")[0] == word]
+        try:
+            index = random.choice(indices)
+            return unused.pop(index)
+        except IndexError:
+            return None
+
+    def get_datum_new(datum):
+        if datum["lang"] == "dutch" and datum["name"] not in names_dutch_files:
+            name_old = datum["name"]
+            name_new = pick_unused(name_old)
+            if name_new is not None:
+                return {**datum, "name": name_new}
+            else:
+                return None
+        else:
+            return datum
+
+    data2 = {split: [get_datum_new(datum) for datum in data[split]] for split in SPLITS}
+    data2 = {split: [datum for datum in data2[split] if datum is not None] for split in SPLITS}
+
+    for split in data:
+        save_data(data2[split], "audio", split + "-3")
+
 
 if __name__ == "__main__":
     # prepare_audio_filelist("train")
@@ -436,11 +482,18 @@ if __name__ == "__main__":
     # prepare_validation_samples(("dutch",), 1, 11)
     # prepare_validation_samples(("french",), 1, 11)
     # prepare_validation_samples(("english", "french"), 1, 11)
-    prepare_validation_samples_simple(("english", ))
-    prepare_validation_samples_simple(("french", ))
-    prepare_validation_samples_simple(("english", "french"))
+    # prepare_validation_samples_simple(("english", ))
+    # prepare_validation_samples_simple(("french", ))
+    # prepare_validation_samples_simple(("english", "french"))
     # prepare_audio_filelists_2()
     # for lang in ("english", "french", "dutch"):
     #     print(lang)
     #     prepare_familiar_familiar(lang, 50, split="test")
     #     prepare_novel_familiar(lang, 50, exclude_words=["nautilus"])
+
+    # 2024-10-10
+    prepare_audio_filelists_3()
+    prepare_validation_samples(("dutch",), 1, 11)
+    prepare_validation_samples_simple(("dutch", ))
+    prepare_familiar_familiar("dutch", 50, split="test")
+    prepare_novel_familiar("dutch", 50, exclude_words=["nautilus"])
