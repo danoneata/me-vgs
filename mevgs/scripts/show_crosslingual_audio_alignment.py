@@ -1,4 +1,5 @@
 import pdb
+import random
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ import streamlit as st
 import torch
 
 from functools import partial
-from itertools import combinations, product
+from itertools import combinations, groupby, product
 from matplotlib import pyplot as plt
 from procrustes import orthogonal
 from scipy.stats import spearmanr, kendalltau
@@ -19,9 +20,10 @@ from adjustText import adjust_text
 from toolz import first
 
 from mevgs.data import MEDataset, load_dictionary
-from mevgs.utils import cache_np, read_json, mapt, implies
+from mevgs.utils import cache_json, cache_np, read_json, mapt, implies
 from mevgs.scripts.show_model_comparison import (
     compute_audio_embeddings,
+    compute_image_embeddings,
     LANG_SHORT_TO_LONG,
 )
 
@@ -135,11 +137,33 @@ def show_2d(embs_2d, data, langs, ax):
     add_texts(ax, df)
 
 
+def load_image_data_subset(dataset, n):
+    def get_sample(group, n):
+        group = list(group)
+        if len(group) <= n:
+            return group
+        else:
+            return random.sample(list(group), n)
+
+    image_files = dataset.image_files
+    key = lambda datum: datum["word-en"]
+    image_files = sorted(image_files, key=key)
+    return [
+        datum
+        for _, group in groupby(image_files, key)
+        for datum in get_sample(group, n)
+    ]
+
+
 def load_data_and_embs_image(langs, size, variant):
     path = f"output/show-model-comparison/image-data-ss-30.json"
-    image_data = read_json(path)
+    image_data = cache_json(path, load_image_data_subset, DATASET, n=30)
 
-    langs_str = "-".join(langs)
+    if langs is None:
+        langs_str = "random"
+    else:
+        langs_str = "-".join(langs)
+
     model_name = f"{langs_str}_links-no_size-{size}"
     path = (
         f"output/show-model-comparison/embeddings-image/{model_name}_seed-{variant}.npy"
@@ -147,14 +171,14 @@ def load_data_and_embs_image(langs, size, variant):
     embs = cache_np(
         path,
         compute_image_embeddings,
-        model_name=model_name,
-        test_lang=langs[0],
+        train_langs=langs,
+        links="no",
+        size=size,
         image_data=image_data,
         seed=variant,
     )
 
     # Filter by language and seen words
-    langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
     idxs_image_data = [
         (idx, datum)
         for idx, datum in enumerate(image_data)
@@ -170,20 +194,29 @@ def load_data_and_embs_audio(langs, size, variant):
     path = f"output/show-model-comparison/audio-data-ss-30.json"
     audio_data = read_json(path)
 
-    langs_str = "-".join(langs)
+    if langs is None:
+        langs_str = "random"
+        test_lang = None
+        langs_long = LANGS_LONG
+    else:
+        langs_str = "-".join(langs)
+        test_lang = langs[0]
+        langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
+
     model_name = f"{langs_str}_links-no_size-{size}"
-    path = f"output/show-model-comparison/embeddings/{model_name}_seed-{variant}.npy"
+    path = f"output/show-model-comparison/embeddings-audio/{model_name}_seed-{variant}.npy"
     embs = cache_np(
         path,
         compute_audio_embeddings,
-        model_name=model_name,
-        test_lang=langs[0],
+        train_langs=langs,
+        links="no",
+        size=size,
+        test_lang=test_lang,
         audio_data=audio_data,
         seed=variant,
     )
 
     # Filter by language and seen words
-    langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
     idxs_audio_data = [
         (idx, datum)
         for idx, datum in enumerate(audio_data)
@@ -195,12 +228,12 @@ def load_data_and_embs_audio(langs, size, variant):
     return audio_data, embs
 
 
-def load_data_and_embs(modality, langs, size, seed):
+def load_data_and_embs(modality, train_langs, size, seed):
     FUNCS = {
         "image": load_data_and_embs_image,
         "audio": load_data_and_embs_audio,
     }
-    return FUNCS[modality](langs, size, seed)
+    return FUNCS[modality](train_langs, size, seed)
 
 
 def show_rsm(embs, data, lang, ax):

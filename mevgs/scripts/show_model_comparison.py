@@ -12,7 +12,7 @@ import streamlit as st
 import torch
 
 from matplotlib import pyplot as plt
-from mevgs.data import AudioFeaturesLoader, MEDataset, Language, load_dictionary
+from mevgs.data import AudioFeaturesLoader, ImageFeaturesLoader, MEDataset, Language, load_dictionary
 from mevgs.utils import cache_df, cache_np, cache_json, read_json
 from mevgs.scripts.prepare_predictions_for_yevgen import load_model_and_config
 
@@ -162,9 +162,31 @@ def compare_results(model_params_1, model_params_2, test_lang):
     st.markdown("---")
 
 
-def compute_audio_embeddings(model_name, test_lang, audio_data, seed):
-    test_lang_1 = LANG_SHORT_TO_LONG[test_lang]
-    model, config = load_model_and_config(model_name, test_lang_1, seed)
+def compute_image_embeddings(train_langs, links, size, image_data, seed):
+    model, config = load_model_and_config(train_langs, links, size, None, seed)
+    device = config["device"]
+
+    feature_type = config["data"]["feature_type_image"]
+    image_features_loader = ImageFeaturesLoader(feature_type, "test")
+
+    def compute_image_embedding(datum):
+        image = image_features_loader(datum)
+        image = image.unsqueeze(0)
+        image = image.to(device)
+        return model.image_enc(image)
+
+    with torch.no_grad():
+        embs = [compute_image_embedding(datum) for datum in tqdm(image_data)]
+
+    embs = torch.cat(embs)
+    embs = embs.squeeze(2)
+    embs = model.l2_normalize(embs, 1)
+    return embs.cpu().numpy()
+
+
+def compute_audio_embeddings(train_langs, links, size, test_lang, audio_data, seed):
+    test_lang_1 =  LANG_SHORT_TO_LONG[test_lang] if test_lang else None
+    model, config = load_model_and_config(train_langs, links, size, test_lang_1, seed)
     device = config["device"]
 
     audio_features_loader = AudioFeaturesLoader("wavlm-base-plus", "test", LANGS_LONG)
@@ -247,7 +269,9 @@ def show_audio_similarities(model_params, test_lang, seed, ax):
         embs = cache_np(
             f"output/show-model-comparison/embeddings/{model_name}_seed-{seed}.npy",
             compute_audio_embeddings,
-            model_name=model_name,
+            train_langs=model_params["train-langs"],
+            links=model_params["has-links"],
+            size=model_params["model-size"],
             test_lang=test_lang,
             audio_data=data,
             seed=seed,

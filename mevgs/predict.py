@@ -36,6 +36,12 @@ def get_best_checkpoint(output_dir: Path) -> Path:
     return file
 
 
+def load_model_random(config_name, config):
+    model = setup_model(**config["model"])
+    model.eval()
+    return model
+
+
 def load_model(config_name, config):
     model = setup_model(**config["model"])
     folder = Path("output") / config_name

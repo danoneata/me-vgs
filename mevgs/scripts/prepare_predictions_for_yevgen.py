@@ -1,9 +1,10 @@
-import sys
 import pandas as pd
 
 from copy import deepcopy
 
-from mevgs.predict import CONFIGS, MODELS, predict_model_batched
+import click
+
+from mevgs.predict import CONFIGS, MODELS, predict_model_batched, load_model_random
 
 DEVICE = "cuda"
 TEST = "novel-familiar"
@@ -43,22 +44,36 @@ for lang1 in "nl en-nl fr-nl".split():
         NAMES[key] = val
 
 
-def load_model_and_config(name, lang, v):
+def load_model_and_config(train_langs, links, size, test_lang, seed):
+    train_langs_1 = train_langs if train_langs else ("en", )
+    train_langs_1 = "-".join(train_langs_1)
+
+    name = f"{train_langs_1}_links-{links}_size-{size}"
     model_name_generic = NAMES[name]
-    model_name = model_name_generic.format(v)
+    model_name = model_name_generic.format(seed)
 
     config = CONFIGS[model_name]
     config = deepcopy(config)
-    assert lang in config["data"]["langs"], "Language {} not in model config {}".format(lang, config["data"]["langs"])
 
-    model = MODELS[model_name]()
+    if train_langs is not None and test_lang is not None:
+        error_message = "Language {} not in model config {}".format(
+            test_lang,
+            config["data"]["langs"],
+        )
+        assert test_lang in config["data"]["langs"], error_message
+
+    if train_langs is not None:
+        model = MODELS[model_name]()
+    else:
+        model = load_model_random(None, config)
+
     model.to(DEVICE)
 
     return model, config
 
 
-def get_preds_1(name, lang, v):
-    model, config = load_model_and_config(name, lang, v)
+def get_preds_1(train_langs, links, size, lang, v):
+    model, config = load_model_and_config(train_langs, links, size, lang, v)
     return predict_model_batched(config, lang, TEST, model, DEVICE)
 
 
@@ -71,15 +86,20 @@ def merge(ps):
     return {**dict1, **dict2}
 
 
-if __name__ == "__main__":
-    name = sys.argv[1]
-    lang = sys.argv[2]
-
-    preds = [get_preds_1(name, lang, v) for v in "abcde"]
+@click.command()
+@click.option("--train-langs", "train_langs", multiple=True)
+@click.option("--links")
+@click.option("--size")
+@click.option("--test-lang", "test_lang")
+def main(train_langs, links, size, test_lang):
+    preds = [get_preds_1(train_langs, links, size, test_lang, v) for v in "abcde"]
     preds = [merge(ps) for ps in zip(*preds)]
 
+    train_langs_str = "-".join(train_langs)
+    name = f"{train_langs_str}_links-{links}_size-{size}"
+
     LANG_SHORT = {"english": "en", "french": "fr", "dutch": "nl"}
-    lang_short = LANG_SHORT[lang]
+    lang_short = LANG_SHORT[test_lang]
     df = pd.DataFrame(preds)
     df.to_csv(f"output/preds/{name}_on-{lang_short}.csv", index=False)
     # import pdb; pdb.set_trace()
@@ -87,3 +107,7 @@ if __name__ == "__main__":
     cols = ["is-correct/{}".format(i) for i in range(5)]
     scores = 100 * df[cols].mean()
     print("{}: {:.2f}±{:.1f}".format(name, scores.mean(), scores.std()))
+
+
+if __name__ == "__main__":
+    main()
