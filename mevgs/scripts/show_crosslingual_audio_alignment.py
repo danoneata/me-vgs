@@ -37,7 +37,7 @@ def aggregate_by_word(emb, meta, lang=None):
             i
             for i, m in enumerate(meta)
             if m["word-en"] == word
-            and implies(lang is not None, m["lang"] == LANG_SHORT_TO_LONG[lang])
+            and (lang is None or m["lang"] == LANG_SHORT_TO_LONG[lang])
         ]
         emb = emb[idxs].mean(0)
         return emb / np.linalg.norm(emb)
@@ -135,7 +135,38 @@ def show_2d(embs_2d, data, langs, ax):
     add_texts(ax, df)
 
 
-def load_data_and_embs(langs, size, variant):
+def load_data_and_embs_image(langs, size, variant):
+    path = f"output/show-model-comparison/image-data-ss-30.json"
+    image_data = read_json(path)
+
+    langs_str = "-".join(langs)
+    model_name = f"{langs_str}_links-no_size-{size}"
+    path = (
+        f"output/show-model-comparison/embeddings-image/{model_name}_seed-{variant}.npy"
+    )
+    embs = cache_np(
+        path,
+        compute_image_embeddings,
+        model_name=model_name,
+        test_lang=langs[0],
+        image_data=image_data,
+        seed=variant,
+    )
+
+    # Filter by language and seen words
+    langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
+    idxs_image_data = [
+        (idx, datum)
+        for idx, datum in enumerate(image_data)
+        if datum["word-en"] in WORDS_SEEN
+    ]
+    idxs, image_data = mapt(list, zip(*idxs_image_data))
+    embs = embs[idxs]
+
+    return image_data, embs
+
+
+def load_data_and_embs_audio(langs, size, variant):
     path = f"output/show-model-comparison/audio-data-ss-30.json"
     audio_data = read_json(path)
 
@@ -162,6 +193,14 @@ def load_data_and_embs(langs, size, variant):
     embs = embs[idxs]
 
     return audio_data, embs
+
+
+def load_data_and_embs(modality, langs, size, seed):
+    FUNCS = {
+        "image": load_data_and_embs_image,
+        "audio": load_data_and_embs_audio,
+    }
+    return FUNCS[modality](langs, size, seed)
 
 
 def show_rsm(embs, data, lang, ax):
@@ -249,7 +288,7 @@ def do(langs, size, seed):
     variant = VARIANTS[seed]
 
     lang1, lang2 = langs
-    load_data_and_embs_1 = partial(load_data_and_embs, size=size, variant=variant)
+    load_data_and_embs_1 = partial(load_data_and_embs_audio, size=size, variant=variant)
 
     data1, embs1 = load_data_and_embs_1([lang1])
     data2, embs2 = load_data_and_embs_1([lang2])
