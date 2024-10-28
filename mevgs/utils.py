@@ -49,3 +49,11 @@ def cache_df(path, func, *args, **kwargs):
         result = func(*args, **kwargs)
         result.to_pickle(path)
         return result
+
+
+def mapt(fn, *args):
+    return tuple(map(fn, *args))
+
+
+def implies(p, q):
+    return not p or q
