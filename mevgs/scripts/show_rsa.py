@@ -22,9 +22,11 @@ from toolz import first, concat
 from mevgs.utils import cache_np, read_json, mapt
 from scipy.stats import kendalltau
 from mevgs.scripts.show_crosslingual_audio_alignment import (
+    aggregate_by_word,
     align,
     load_data_and_embs,
-    aggregate_by_word,
+    translate,
+    LANG_SHORT_TO_LONG,
     WORDS_SEEN,
 )
 
@@ -338,8 +340,8 @@ def show_aggregated(size):
 def show_rsa_detailed():
     with st.sidebar:
         size = st.selectbox("Size", SIZES)
-        config1 = st.selectbox("Config 1", CONFIGS1, format_func=cfg_to_str)
-        config2 = st.selectbox("Config 2", CONFIGS2, format_func=cfg_to_str)
+        config1 = st.selectbox("Model 1", CONFIGS1, format_func=cfg_to_str)
+        config2 = st.selectbox("Model 2", CONFIGS2, format_func=cfg_to_str)
 
     # return use_same_lang
     SEED_PAIRS = {
@@ -370,6 +372,42 @@ def show_rsa_detailed():
         for seed1, seed2 in seed_pairs
     }
 
+    corrs = {
+        (seed1, seed2): spearmanr(*rsms[(seed1, seed2)]).correlation
+        for seed1, seed2 in seed_pairs
+    }
+
+    corrs_df = [
+        {"seed1": seed1, "seed2": seed2, "corr": corrs.get((seed1, seed2))}
+        for seed1, seed2 in product(SEEDS, SEEDS)
+    ]
+    corrs_df = pd.DataFrame(corrs_df)
+    corrs_df = corrs_df.pivot(index="seed1", columns="seed2", values="corr")
+    fig, ax = plt.subplots()
+    sns.heatmap(
+        corrs_df, annot=True, square=True, vmin=0, vmax=1, cbar=False, fmt=".2f", ax=ax
+    )
+    ax.set_title("Spearman ρ correlation")
+
+    st.markdown("## Correlations between representation similarities across seeds")
+    st.markdown(
+        """
+        - Test lang: `{}`.
+        - Correlation (mean and 2 × std): {:.2f}±{:.1f}.
+        - Model `{}` is across rows.
+        - Model `{}` is across columns.
+        """.format(
+            test_lang,
+            np.mean(list(corrs.values())),
+            2 * np.std(list(corrs.values())),
+            cfg_to_str(config1),
+            cfg_to_str(config2),
+        )
+    )
+
+    col, *_ = st.columns(2)
+    col.pyplot(fig)
+
     n_seeds = len(SEEDS)
     S = 1.5
     fig, axs = plt.subplots(
@@ -379,7 +417,6 @@ def show_rsa_detailed():
         sharey=True,
         figsize=(S * n_seeds, S * n_seeds),
     )
-    corrs = []
     for r in range(n_seeds):
         for c in range(n_seeds):
             seed1 = SEEDS[r]
@@ -389,31 +426,15 @@ def show_rsa_detailed():
                 pass
             else:
                 rsm1, rsm2 = rsms[(seed1, seed2)]
-                ρ = spearmanr(rsm1, rsm2).correlation
-                corrs.append(ρ)
                 axs[r, c].scatter(rsm1, rsm2)
-                axs[r, c].set_title("ρ = {:.2f}".format(ρ))
+                axs[r, c].set_title("ρ = {:.2f}".format(corrs[(seed1, seed2)]))
             if r == n_seeds - 1:
                 axs[r, c].set_xlabel(f"Seed: {seed2}")
             if c == 0:
                 axs[r, c].set_ylabel(f"Seed: {seed1}")
-    fig.tight_layout()
 
-    st.markdown("## Scatter plots of the embeddings similarities")
-    st.markdown(
-        """
-        - Test lang: `{}`.
-        - Correlation (mean and 2 × std): {:.2f}±{:.1}.
-        - Model `{}` is across rows.
-        - Model `{}` is across columns.
-        """.format(
-            test_lang,
-            np.mean(corrs),
-            2 * np.std(corrs),
-            cfg_to_str(config1),
-            cfg_to_str(config2),
-        )
-    )
+    fig.tight_layout()
+    st.markdown("Scatterplots of representation similarities across seeds.")
     st.pyplot(fig)
     st.markdown("---")
 
@@ -448,11 +469,31 @@ def show_rsa_detailed():
     )
     show_rsm({**config1, "test_lang": test_lang, "size": size, "seed": seed1}, axs[0])
     show_rsm({**config2, "test_lang": test_lang, "size": size, "seed": seed2}, axs[1])
-    st.markdown("## Similarity matrices")
+
+    st.markdown("## Similarity matrices between representations")
     st.markdown(
-        "Similarity matrices for familiar words for the two selected configurations."
+        """
+        The matrices below show the similarity between word representations for the selected models.
+        These similarity matrices are computed as follows:
+        1. Extract the embeddings of samples corresponding to familiar words.
+        2. Compute a per-word representation as the average of the corresponding embeddings.
+        3. Compute the similarity matrix as the cosine similarity between this word representations.
+        """
     )
     st.pyplot(fig)
+
+    fig, ax = plt.subplots(figsize=(2 * S, 2 * S))
+    rsm1, rsm2 = rsms[(seed1, seed2)]
+    ax.scatter(rsm1, rsm2)
+    ax.set_title("ρ = {:.2f}".format(corrs[(seed1, seed2)]))
+    ax.set_xlabel(f"Seed: {seed2}")
+    ax.set_ylabel(f"Seed: {seed1}")
+
+    st.markdown(
+        "Scatterplot of representation similarities for the two selected seeds."
+    )
+    col, *_ = st.columns(2)
+    col.pyplot(fig)
     st.markdown("---")
 
     data1, embs1 = load_data_and_embs(**config1, size=size, seed=seed1)
@@ -466,57 +507,74 @@ def show_rsa_detailed():
     embs1_2d = proj.transform(embs1)
     embs2_2d = proj.transform(embs2)
 
-    def add_texts(ax, df):
-        df1 = df.groupby("word-en").mean().reset_index()
+    def add_texts(ax, df, word_key="word"):
+        cols = ["x", "y"]
+        df1 = df.groupby(word_key)[cols].mean().reset_index()
         for _, row in df1.iterrows():
-            xy = df.loc[df["word-en"] == row["word-en"], ["x", "y"]].values
+            idxs = df[word_key] == row[word_key]
+            xy = df.loc[idxs, cols].values
             xy = random.choice(xy.tolist())
             ax.annotate(
-                row["word-en"],
+                row[word_key],
                 xy=xy,
                 xytext=(row["x"], row["y"]),
                 arrowprops=dict(arrowstyle="->", color="gray"),
+                fontsize=8,
             )
 
-    def show_2d(embs_2d, data, ax):
+    def show_2d(embs_2d, data, config, ax):
         # tsne = manifold.TSNE(n_components=2, init="pca", random_state=0)
         # embs_tsne = tsne.fit_transform(embs)
         df = pd.DataFrame(embs_2d, columns=["x", "y"])
         df["word-en"] = [d["word-en"] for d in data]
-        # df["lang"] = [d["lang"] for d in data]
-        # df["word"] = [translate(d["word-en"], d["lang"]) for d in data]
-        # df["word"] = df["word-en"]
 
-        markers = {
-            "english": "o",
-            "french": "X",
-            "dutch": "s",
-        }
+        if config["modality"] == "audio":
+            df["word"] = [translate(d["word-en"], d["lang"]) for d in data]
+        else:
+            df["word"] = df["word-en"]
+
+        if use_same_lang and len(config["train_langs"]) > 1:
+            assert test_lang is not None
+            idxs = [d["lang"] == LANG_SHORT_TO_LONG[test_lang] for d in data]
+            idxs = np.array(idxs)
+            df_other = df.loc[~idxs]
+            df = df.loc[idxs]
+            sns.scatterplot(
+                data=df_other,
+                x="x",
+                y="y",
+                c="gray",
+                legend=False,
+                alpha=0.5,
+                ax=ax,
+            )
 
         sns.scatterplot(
             data=df,
             x="x",
             y="y",
             hue="word-en",
-            # style="lang",
             legend=False,
-            markers=markers,
+            # style="lang",
+            # markers=markers,
+            palette="tab20",
             ax=ax,
         )
-        # ax.set_title("-".join(langs))
         add_texts(ax, df)
 
-    fig, axs = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
-    show_2d(embs1_2d, data1, axs[0])
-    show_2d(embs2_2d, data2, axs[1])
+    fig, axs = plt.subplots(1, 2, figsize=(4 * S, 2 * S), sharex=True, sharey=True)
+    show_2d(embs1_2d, data1, config1, axs[0])
+    show_2d(embs2_2d, data2, config2, axs[1])
     axs[0].set_title("{} · seed: {}".format(cfg_to_str(config1), seed1))
     axs[1].set_title("{} · seed: {}".format(cfg_to_str(config2), seed2))
 
     st.markdown("## Low-dimensional projections")
     st.markdown(
         """
-    - Align the embedding from model 2 to those of model 1.
-    - Learn PCA on embeddings from model 2 and project 2D embeddings from both models.
+    The plots below show the 2D projections of the embeddings corresponding to the familiar words for the two selected models.
+    These are produced as follows:
+    1. Align the embeddings produced by model 2 to those produced by model 1 using a learnt orthogonal transformation (Procustes alignment).
+    2. Learn the PCA projection on embeddings from model 1 and project the embeddings from both models to a two-dimensional space.
     """
     )
     st.pyplot(fig)
