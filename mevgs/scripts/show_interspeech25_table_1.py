@@ -84,13 +84,16 @@ if __name__ == "__main__":
             if other != test_lang
         ]
 
-    # results = [
-    #     get_result(train_langs, "no", "lg", test_lang)
-    #     for test_lang in LANGS
-    #     for train_langs in get_train_langs_combinations(test_lang)
-    # ]
-    # df = pd.DataFrame(results)
-    # print(df)
+    results = [
+        get_result(train_langs, "no", "lg", test_lang)
+        for test_lang in LANGS
+        for train_langs in get_train_langs_combinations(test_lang)
+    ]
+    df = pd.DataFrame(results)
+    print(df)
 
-    for s in "sm md lg".split():
-        print(get_result(("fr", "nl"), "no", s, "fr"))
+    # for s in "sm md lg".split():
+    #     print(get_result(("fr", "nl"), "no", s, "fr"))
+
+    # print(get_result(("en", ), "no", "md", "nl"))
+    # print(get_result(("en", "nl"), "no", "md", "nl"))
