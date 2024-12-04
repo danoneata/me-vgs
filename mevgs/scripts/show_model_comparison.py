@@ -2,8 +2,6 @@ import pdb
 import random
 
 from itertools import groupby
-from toolz import first
-from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -11,10 +9,14 @@ import seaborn as sns
 import streamlit as st
 import torch
 
+from tbparse import SummaryReader
+from toolz import first
+from tqdm import tqdm
+
 from matplotlib import pyplot as plt
 from mevgs.data import AudioFeaturesLoader, ImageFeaturesLoader, MEDataset, Language, load_dictionary
 from mevgs.utils import cache_df, cache_np, cache_json, read_json
-from mevgs.scripts.prepare_predictions_for_yevgen import load_model_and_config
+from mevgs.scripts.prepare_predictions_for_yevgen import load_model_and_config, NAMES
 
 
 sns.set_theme(context="talk", style="whitegrid", font="Arial", palette="tab10")
@@ -100,6 +102,41 @@ def show_results(col, preds, title):
     # col.write(preds.groupby("audio")["is-correct"].mean())
 
 
+def show_training_results(model_params, test_lang, st_col):
+    train_langs = model_params["train-langs"]
+    model_name = "{}_links-{}_size-{}".format(
+        "-".join(train_langs),
+        model_params["has-links"],
+        model_params["model-size"],
+    )
+
+    test_lang_long = LANG_SHORT_TO_LONG[test_lang]
+
+    def get1(seed):
+        folder = NAMES[model_name].format(seed)
+        path = f"output/{folder}"
+        results = SummaryReader(path)
+        scalars = results.scalars
+        col1 = "valid/loss"
+        # st.write(scalars["tag"].unique())
+        col2 = f"test/{test_lang_long}/accuracy-novel-familiar"
+        if col2 not in scalars["tag"].unique():
+            col2 = f"test/accuracy-novel-familiar"
+        df = scalars[scalars["tag"].isin([col1, col2])]
+        df = df.pivot(index="step", columns="tag", values="value")
+        best_epoch = df[col1].idxmin()
+        return {
+            "epoch-best": best_epoch,
+            "NF": df.loc[best_epoch, col2],
+            "NF-best": df[col2].max(),
+        }
+
+    df = [{"seed": s, **get1(s)} for s in "abcde"]
+    df = pd.DataFrame(df)
+
+    st_col.write(df)
+
+
 def compare_results(model_params_1, model_params_2, test_lang):
     preds1 = load_predictions(model_params_1, test_lang)
     preds2 = load_predictions(model_params_2, test_lang)
@@ -107,6 +144,9 @@ def compare_results(model_params_1, model_params_2, test_lang):
     col1, col2 = st.columns(2)
     show_results(col1, preds1, "Model 1")
     show_results(col2, preds2, "Model 2")
+
+    show_training_results(model_params_1, test_lang, col1)
+    show_training_results(model_params_2, test_lang, col2)
 
     preds = pd.concat([preds1, preds2])
 
@@ -162,10 +202,8 @@ def compare_results(model_params_1, model_params_2, test_lang):
     st.markdown("---")
 
 
-def compute_image_embeddings(train_langs, links, size, image_data, seed):
-    model, config = load_model_and_config(train_langs, links, size, None, seed)
+def compute_image_embeddings_given_model(model, config, image_data):
     device = config["device"]
-
     feature_type = config["data"]["feature_type_image"]
     image_features_loader = ImageFeaturesLoader(feature_type, "test")
 
@@ -184,12 +222,15 @@ def compute_image_embeddings(train_langs, links, size, image_data, seed):
     return embs.cpu().numpy()
 
 
-def compute_audio_embeddings(train_langs, links, size, test_lang, audio_data, seed):
-    test_lang_1 =  LANG_SHORT_TO_LONG[test_lang] if test_lang else None
-    model, config = load_model_and_config(train_langs, links, size, test_lang_1, seed)
-    device = config["device"]
+def compute_image_embeddings(train_langs, links, size, image_data, seed):
+    model, config = load_model_and_config(train_langs, links, size, None, seed)
+    return compute_image_embeddings_given_model(model, config, image_data)
 
-    audio_features_loader = AudioFeaturesLoader("wavlm-base-plus", "test", LANGS_LONG)
+
+def compute_audio_embeddings_given_model(model, config, audio_data):
+    device = config["device"]
+    feature_type = config["data"]["feature_type_audio"]
+    audio_features_loader = AudioFeaturesLoader(feature_type, "test", LANGS_LONG)
 
     def compute_audio_embedding(datum):
         audio = audio_features_loader(datum)
@@ -206,6 +247,12 @@ def compute_audio_embeddings(train_langs, links, size, test_lang, audio_data, se
     embs = embs.squeeze(2)
     embs = model.l2_normalize(embs, 1)
     return embs.cpu().numpy()
+
+
+def compute_audio_embeddings(train_langs, links, size, test_lang, audio_data, seed):
+    test_lang_1 =  LANG_SHORT_TO_LONG[test_lang] if test_lang else None
+    model, config = load_model_and_config(train_langs, links, size, test_lang_1, seed)
+    return compute_audio_embeddings_given_model(model, config, audio_data)
 
 
 def show_audio_similarities(model_params, test_lang, seed, ax):
@@ -266,8 +313,9 @@ def show_audio_similarities(model_params, test_lang, seed, ax):
         path = f"output/show-model-comparison/audio-data-ss-{n}.json"
         data = cache_json(path, load_audio_data_subset, dataset, n=n)
 
+        path = f"output/show-model-comparison/embeddings-audio/{model_name}_seed-{seed}.npy"
         embs = cache_np(
-            f"output/show-model-comparison/embeddings/{model_name}_seed-{seed}.npy",
+            path,
             compute_audio_embeddings,
             train_langs=model_params["train-langs"],
             links=model_params["has-links"],
