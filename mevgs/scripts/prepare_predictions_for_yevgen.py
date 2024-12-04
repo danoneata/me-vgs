@@ -72,9 +72,14 @@ def load_model_and_config(train_langs, links, size, test_lang, seed):
     return model, config
 
 
+LANG_SHORT = {"english": "en", "french": "fr", "dutch": "nl"}
+LANG_LONG = {v: k for k, v in LANG_SHORT.items()}
+
+
 def get_preds_1(train_langs, links, size, lang, v):
-    model, config = load_model_and_config(train_langs, links, size, lang, v)
-    return predict_model_batched(config, lang, TEST, model, DEVICE)
+    lang_long = LANG_LONG[lang]
+    model, config = load_model_and_config(train_langs, links, size, lang_long, v)
+    return predict_model_batched(config, lang_long, TEST, model, DEVICE)
 
 
 def merge(ps):
@@ -85,27 +90,25 @@ def merge(ps):
     dict2 = {"{}/{}".format(k, i): ps[i][k] for i in range(n) for k in keys2}
     return {**dict1, **dict2}
 
-
 @click.command()
-@click.option("--train-langs", "train_langs", multiple=True)
+@click.option("--train-langs", "train_langs")
 @click.option("--links")
 @click.option("--size")
 @click.option("--test-lang", "test_lang")
 def main(train_langs, links, size, test_lang):
+    train_langs = train_langs.split("-")
     preds = [get_preds_1(train_langs, links, size, test_lang, v) for v in "abcde"]
     preds = [merge(ps) for ps in zip(*preds)]
 
     train_langs_str = "-".join(train_langs)
     name = f"{train_langs_str}_links-{links}_size-{size}"
 
-    LANG_SHORT = {"english": "en", "french": "fr", "dutch": "nl"}
-    lang_short = LANG_SHORT[test_lang]
     df = pd.DataFrame(preds)
-    df.to_csv(f"output/preds/{name}_on-{lang_short}.csv", index=False)
-    # import pdb; pdb.set_trace()
+    df.to_csv(f"output/preds/{name}_on-{test_lang}.csv", index=False)
 
     cols = ["is-correct/{}".format(i) for i in range(5)]
     scores = 100 * df[cols].mean()
+    print(scores)
     print("{}: {:.2f}±{:.1f}".format(name, scores.mean(), scores.std()))
 
 
