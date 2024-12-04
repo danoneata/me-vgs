@@ -436,12 +436,12 @@ class TripletMEDataset(Dataset):
             for lang in langs
         }
 
-        # if split == "valid" and to_fix_validation_samples:
-        #     suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
-        #     path = f"data/filelists/validation-samples-{suffix}.json"
-        #     with open(path, "r") as f:
-        #         validation_samples = json.load(f)
-        #     self.get_positives_and_negatives = lambda i: validation_samples[i]
+        if split == "valid" and to_fix_validation_samples:
+            suffix = "{}-P{}-N{}".format("_".join(langs), num_pos, num_neg)
+            path = f"data/filelists/validation-samples-{suffix}.json"
+            with open(path, "r") as f:
+                validation_samples = json.load(f)
+            self.get_positives_and_negatives = lambda i: validation_samples[i]
 
     def get_other_lang(self, lang):
         return self.lang2 if lang == self.lang1 else self.lang1
