@@ -22,6 +22,10 @@ from mevgs.scripts.show_crosslingual_audio_alignment import (
 )
 
 
+WORDS_UNSEEN = DATASET.words_unseen
+WORDS_UNSEEN.remove("nautilus")
+
+
 def compute_novel_familiar_accuracy(data, embs, selected_word, WORDS_SEEN):
     def is_correct(q, p, n):
         q_emb = embs[q["i"]]
@@ -76,7 +80,7 @@ def compute_me(data, embs):
             "me-bias": nf.item(),
         }
 
-    return [compute1(word) for word in DATASET.words_unseen]
+    return [compute1(word) for word in WORDS_UNSEEN]
 
 
 def compute_features(data, embs):
@@ -116,7 +120,7 @@ def compute_features(data, embs):
 
     return [
         {**COMPUTE_FEATURES[feature](word), "feature": feature}
-        for word in DATASET.words_unseen
+        for word in WORDS_UNSEEN
         for feature in COMPUTE_FEATURES.keys()
     ]
 
@@ -130,7 +134,7 @@ def aggregate_by_word(data, embs):
     embs1 = [embs[idxs].mean(0) for idxs in idxss]
     embs1 = np.vstack(embs1)
     embs1 = embs1 / np.linalg.norm(embs1, axis=1)[:, np.newaxis]
-    return embs1
+    return embs1, words
 
 
 def filter_data(
@@ -140,8 +144,8 @@ def filter_data(
     words_types=["seen", "unseen"],
 ):
     WORDS = {
-        "seen": DATASET.words_seen,
-        "unseen": DATASET.words_unseen,
+        "seen": WORDS_SEEN,
+        "unseen": WORDS_UNSEEN,
     }
     words = [word for words_type in words_types for word in WORDS[words_type]]
     words = set(words)
@@ -159,8 +163,9 @@ def compute_seen_word_distances(data, embs):
     def aggregate_by_word_1(embs, data, modality):
         return aggregate_by_word(*filter_data(data, embs, [modality], ["seen"]))
 
-    embs_image = aggregate_by_word_1(embs, data, "image")
-    embs_audio = aggregate_by_word_1(embs, data, "audio")
+    embs_image, words_image = aggregate_by_word_1(embs, data, "image")
+    embs_audio, words_audio = aggregate_by_word_1(embs, data, "audio")
+    assert words_image == words_audio
     distances = np.linalg.norm(embs_image[:, np.newaxis] - embs_audio, axis=2)
     return distances
 
@@ -360,9 +365,10 @@ def show_across_words_mismatched():
 
         results = [
             is_correct(q, p, n)
-            for q in data_audio_novel[::3]
-            for p in data_image_novel[::3]
-            for n in data_image_familiar[::3]
+            for q in data_audio_novel[::2]
+            for p in data_image_novel[::2]
+            for n in data_image_familiar[::2]
+            # if p["source"] == n["source"]
         ]
         return {
             "me-bias": 100 * np.mean(results),
@@ -373,22 +379,18 @@ def show_across_words_mismatched():
     def compute_me_mismatched(data, embs):
         return [
             compute_me_mismatched_pair(data, embs, q, p)
-            for q, p in tqdm(product(DATASET.words_unseen, DATASET.words_unseen))
+            for q, p in tqdm(product(WORDS_UNSEEN, WORDS_UNSEEN))
         ]
 
     def compute_distances(data, embs):
         audio_data, embs_audio = filter_data(data, embs, ["audio"], ["unseen"])
         image_data, embs_image = filter_data(data, embs, ["image"], ["unseen"])
 
-        audio_centroids = aggregate_by_word(audio_data, embs_audio)
-        image_centroids = aggregate_by_word(image_data, embs_image)
+        audio_centroids, audio_words = aggregate_by_word(audio_data, embs_audio)
+        image_centroids, image_words = aggregate_by_word(image_data, embs_image)
 
-        audio_centroids = {
-            w: c for w, c in zip(sorted(DATASET.words_unseen), audio_centroids)
-        }
-        image_centroids = {
-            w: c for w, c in zip(sorted(DATASET.words_unseen), image_centroids)
-        }
+        audio_centroids = dict(zip(audio_words, audio_centroids))
+        image_centroids = dict(zip(image_words, image_centroids))
 
         def compute_modality_distance(q, p):
             dist = np.linalg.norm(audio_centroids[q] - image_centroids[p])
@@ -400,10 +402,10 @@ def show_across_words_mismatched():
 
         return [
             compute_modality_distance(q, p)
-            for q, p in tqdm(product(DATASET.words_unseen, DATASET.words_unseen))
+            for q, p in tqdm(product(WORDS_UNSEEN, WORDS_UNSEEN))
         ]
 
-    def do1(train_langs, size, seed, test_lang):
+    def do1(train_langs, size, seed, test_lang, ax, use_legend=False):
         data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
 
         train_langs_str = "-".join(train_langs) if train_langs else "random"
@@ -425,7 +427,6 @@ def show_across_words_mismatched():
                 train_langs_str, size, seed, test_lang
             )
         )
-        fig, ax = plt.subplots(figsize=(6, 6))
         sns.scatterplot(
             data=df,
             x="distance",
@@ -433,18 +434,23 @@ def show_across_words_mismatched():
             ax=ax,
             hue="word-query",
             style="is-paired",
+            legend=use_legend,
         )
-        sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
         corr = 100 * np.corrcoef(df["distance"], df["me-bias"])[0, 1]
-        ax.set_title("ρ: {:.1f}%".format(corr))
+        ax.set_title("ρ: {:.1f}% · NF: {:.1f}%".format(corr, df["me-bias"].mean()))
         ax.axhline(50, color="red", linewidth=1, linestyle="--")
-        st.pyplot(fig)
 
-    train_langs = ["en"]
-    seed = "c"
-    size = "sm"
-    test_lang = "en"
-    do1(train_langs, size, seed, test_lang)
+    # train_langs = ["en"]
+    # seed = "c"
+    # size = "sm"
+    # test_lang = "en"
+    # do1(train_langs, size, seed, test_lang)
+
+    fig, axs = plt.subplots(figsize=(12, 6), ncols=2, nrows=1, sharey=True)
+    do1(["en", "nl"], "md", "d", "nl", axs[0])
+    do1(["en", "nl"], "md", "b", "nl", axs[1], use_legend=True)
+    sns.move_legend(axs[1], "upper left", bbox_to_anchor=(1, 1))
+    st.pyplot(fig)
 
 
 def show_across_words():
@@ -460,8 +466,8 @@ def show_across_words():
 
 def show_across_models():
     WORDS = {
-        "seen": DATASET.words_seen,
-        "unseen": DATASET.words_unseen,
+        "seen": WORDS_SEEN,
+        "unseen": WORDS_UNSEEN,
     }
 
     def compute_spread(data, embs, modality, words_type):
@@ -500,8 +506,9 @@ def show_across_models():
         return 100 * df.loc[best_epoch, col_nf]
 
     def compute_modality_distance(data, embs):
-        embs_image = aggregate_by_word(*filter_data(data, embs, ["image"], ["unseen"]))
-        embs_audio = aggregate_by_word(*filter_data(data, embs, ["audio"], ["unseen"]))
+        embs_image, words_image = aggregate_by_word(*filter_data(data, embs, ["image"], ["unseen"]))
+        embs_audio, words_audio = aggregate_by_word(*filter_data(data, embs, ["audio"], ["unseen"]))
+        assert words_image == words_audio
         dists = np.linalg.norm(embs_image - embs_audio, axis=1)
         return np.mean(dists)
 
@@ -801,7 +808,7 @@ def show_across_models_random():
 
 if __name__ == "__main__":
     # show_across_words()
-    # show_across_words_mismatched()
+    show_across_words_mismatched()
     # show_across_models()
     # show_across_models_scaling_translation()
-    show_across_models_random()
+    # show_across_models_random()
