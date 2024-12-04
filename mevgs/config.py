@@ -958,7 +958,7 @@ LANG_SHORT = {
 
 
 for lang in ("dutch", "french"):
-    for seed, v in enumerate("abcde"):
+    for seed, v in enumerate("abcdefghij"):
         lang_short = LANG_SHORT[lang]
         CONFIGS[f"26{v}-{lang_short}"] = {
             "seed": seed,
@@ -1167,7 +1167,7 @@ SIZES = {
 
 for s in ["xsm", "sm", "lg"]:
     for langs in [("english", ), ("french", ), ("english", "french")]:
-        for seed, v in enumerate("abcde"):
+        for seed, v in enumerate("abcdefghij"):
             e = SIZES[s]
             suffix = "-".join(LANG_SHORT[l] for l in langs)
             CONFIGS[f"26{v}-{s}-{suffix}"] = {
@@ -1295,7 +1295,7 @@ for langs in [("english", ), ("french", ), ("english", "french")]:
 
 for s in ["sm", "md", "lg"]:
     for langs in [("english", ), ("french", ), ("english", "french")]:
-        for seed, v in enumerate("abcde"):
+        for seed, v in enumerate("abcdefghij"):
             e = SIZES[s]
             suffix = "-".join(LANG_SHORT[l] for l in langs)
             CONFIGS[f"clip-lang-links-{v}-{s}-{suffix}"] = {
@@ -1340,10 +1340,11 @@ for s in ["sm", "md", "lg"]:
 for langs in [("dutch", ), ("english", "dutch"), ("french", "dutch")]:
     for s in ["sm", "md", "lg"]:
         for links in [False, True]:
-            for seed, v in enumerate("abcde"):
+            for seed, v in enumerate("abcdefghij"):
                 e = SIZES[s]
                 langs1 = "-".join(LANG_SHORT[l] for l in langs)
                 links1 = "yes" if links else "no"
+                model_name = "clip-two-audios" if links else "clip"
                 CONFIGS[f"{langs1}_links-{links1}_size-{s}_{v}"] = {
                     "seed": seed,
                     "device": "cuda",
@@ -1365,7 +1366,7 @@ for langs in [("dutch", ), ("english", "dutch"), ("french", "dutch")]:
                         "batch_size": 60,
                     },
                     "model": {
-                        "model_name": "clip-two-audios",
+                        "model_name": model_name,
                         "embed_dim": e,
                         "audio_encoder_kwargs": {
                             "type": "transformer",
@@ -1382,3 +1383,43 @@ for langs in [("dutch", ), ("english", "dutch"), ("french", "dutch")]:
                     },
                 }
 
+
+for langs in [("english", ), ("english", "french"), ("english", "dutch")]:
+    langs1 = "-".join(LANG_SHORT[l] for l in langs)
+    CONFIGS[f"{langs1}_3d"] = {
+        "seed": 0,
+        "device": "cuda",
+        "max_epochs": 24,
+        "warmup_epochs": 4,
+        "n_saved": 5,
+        "log_every_iters": 5,
+        "optimizer": {
+            "lr": 2e-4,
+            "weight_decay": 5e-7,
+        },
+        "data": {
+            "feature_type_audio": "wavlm-base-plus",
+            "feature_type_image": "dino-resnet50",
+            "langs": langs,
+            "num_pos": 1,
+            "num_neg": 11,
+            "num_workers": 12,
+            "batch_size": 60,
+        },
+        "model": {
+            "model_name": "clip",
+            "embed_dim": 3,
+            "audio_encoder_kwargs": {
+                "type": "transformer",
+                "input_dim": 768,
+                "width": 128,
+            },
+            "image_encoder_kwargs": {
+                "input_dim": 2048,
+                "width": 128,
+                "backbone_type": "identity",
+                "to_freeze_backbone": None,
+                "use_pretrained_backbone": None,
+            },
+        },
+    }
