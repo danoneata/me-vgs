@@ -492,8 +492,12 @@ if __name__ == "__main__":
     #     prepare_novel_familiar(lang, 50, exclude_words=["nautilus"])
 
     # 2024-10-10
-    prepare_audio_filelists_3()
-    prepare_validation_samples(("dutch",), 1, 11)
-    prepare_validation_samples_simple(("dutch", ))
-    prepare_familiar_familiar("dutch", 50, split="test")
-    prepare_novel_familiar("dutch", 50, exclude_words=["nautilus"])
+    # prepare_audio_filelists_3()
+    # prepare_validation_samples(("dutch",), 1, 11)
+    # prepare_validation_samples_simple(("dutch", ))
+    # prepare_familiar_familiar("dutch", 50, split="test")
+    # prepare_novel_familiar("dutch", 50, exclude_words=["nautilus"])
+
+    # 2024-11-05
+    prepare_validation_samples(("french", "dutch"), 1, 11)
+    prepare_validation_samples(("english", "dutch"), 1, 11)
