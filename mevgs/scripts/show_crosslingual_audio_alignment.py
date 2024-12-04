@@ -155,7 +155,7 @@ def load_image_data_subset(dataset, n):
     ]
 
 
-def load_data_and_embs_image(langs, size, variant):
+def load_data_and_embs_image_all(langs, size, variant):
     path = f"output/show-model-comparison/image-data-ss-30.json"
     image_data = cache_json(path, load_image_data_subset, DATASET, n=30)
 
@@ -178,6 +178,12 @@ def load_data_and_embs_image(langs, size, variant):
         seed=variant,
     )
 
+    return image_data, embs
+
+
+def load_data_and_embs_image(langs, size, variant):
+    image_data, embs = load_data_and_embs_image_all(langs, size, variant)
+
     # Filter by language and seen words
     idxs_image_data = [
         (idx, datum)
@@ -190,18 +196,16 @@ def load_data_and_embs_image(langs, size, variant):
     return image_data, embs
 
 
-def load_data_and_embs_audio(langs, size, variant):
+def load_data_and_embs_audio_all(langs, size, variant):
     path = f"output/show-model-comparison/audio-data-ss-30.json"
     audio_data = read_json(path)
 
     if langs is None:
         langs_str = "random"
         test_lang = None
-        langs_long = LANGS_LONG
     else:
         langs_str = "-".join(langs)
         test_lang = langs[0]
-        langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
 
     model_name = f"{langs_str}_links-no_size-{size}"
     path = f"output/show-model-comparison/embeddings-audio/{model_name}_seed-{variant}.npy"
@@ -216,6 +220,17 @@ def load_data_and_embs_audio(langs, size, variant):
         seed=variant,
     )
 
+    return audio_data, embs
+
+
+def load_data_and_embs_audio(langs, size, variant):
+    audio_data, embs = load_data_and_embs_audio_all(langs, size, variant)
+
+    if langs is None:
+        langs_long = LANGS_LONG
+    else:
+        langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
+
     # Filter by language and seen words
     idxs_audio_data = [
         (idx, datum)
@@ -226,6 +241,14 @@ def load_data_and_embs_audio(langs, size, variant):
     embs = embs[idxs]
 
     return audio_data, embs
+
+
+def load_data_and_embs_all(modality, train_langs, size, seed):
+    FUNCS = {
+        "image": load_data_and_embs_image_all,
+        "audio": load_data_and_embs_audio_all,
+    }
+    return FUNCS[modality](train_langs, size, seed)
 
 
 def load_data_and_embs(modality, train_langs, size, seed):
