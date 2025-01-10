@@ -10,10 +10,12 @@ import pandas as pd
 
 from tqdm import tqdm
 
+from sklearn.metrics import pairwise_distances
 from sklearn.decomposition import PCA
 from tbparse import SummaryReader
 
 from mevgs.utils import cache_json
+from mevgs.scripts.show_main_table_last_epoch import get_results_seed
 from mevgs.scripts.prepare_predictions_for_yevgen import NAMES
 from mevgs.scripts.show_3d import DATASET, WORDS_SEEN
 from mevgs.scripts.show_crosslingual_audio_alignment import (
@@ -23,7 +25,8 @@ from mevgs.scripts.show_crosslingual_audio_alignment import (
 
 
 WORDS_UNSEEN = DATASET.words_unseen
-WORDS_UNSEEN.remove("nautilus")
+# WORDS_UNSEEN.remove("nautilus")
+WORDS_UNSEEN = [w for w in WORDS_UNSEEN if w != "nautilus"]
 
 
 def compute_novel_familiar_accuracy(data, embs, selected_word, WORDS_SEEN):
@@ -338,6 +341,9 @@ def do1(train_langs, size, seed, test_lang):
 
 
 def show_across_words_mismatched():
+    import random
+    random.seed(42)
+
     def compute_me_mismatched_pair(data, embs, word_query, word_positive):
         def is_correct(q, p, n):
             q_emb = embs[q["i"]]
@@ -363,12 +369,16 @@ def show_across_words_mismatched():
             if datum["modality"] == "image" and datum["word-en"] in WORDS_SEEN
         ]
 
+        def sample_pos_neg():
+            p = random.choice(data_image_novel)
+            negs = [n for n in data_image_familiar if n["source"] == p["source"]]
+            n = random.choice(negs)
+            return p, n
+
         results = [
-            is_correct(q, p, n)
-            for q in data_audio_novel[::2]
-            for p in data_image_novel[::2]
-            for n in data_image_familiar[::2]
-            # if p["source"] == n["source"]
+            is_correct(q, *sample_pos_neg())
+            for q in data_audio_novel
+            for _ in range(30)
         ]
         return {
             "me-bias": 100 * np.mean(results),
@@ -422,23 +432,50 @@ def show_across_words_mismatched():
         df = pd.merge(df_me, df_dists, on=["word-query", "word-pos"])
         df["is-paired"] = df["word-query"] == df["word-pos"]
 
+        corr = 100 * np.corrcoef(df["distance"], df["me-bias"])[0, 1]
+        # me_bias_mean = df["me-bias"].mean()
+        idxs = df["is-paired"]
+        me_bias_mean = df[idxs]["me-bias"].mean()
+        me_bias_model = get_results_seed(train_langs, "no", size, test_lang, seed)["NF"]
+
+        xlabel = "Distance between\naudio–image centroids"
+        ylabel = "Novel–familiar accuracy"
+        model_str = "{}: {}".format(
+            "Monolingual" if len(train_langs) == 1 else "Bilingual",
+            ", ".join([LANG_SHORT_TO_LONG[lang].capitalize() for lang in train_langs]),
+        )
+
+        df = df.rename(
+            columns={
+                "word-query": "Query",
+                "me-bias": ylabel,
+                "distance": xlabel,
+            }
+        )
+        df["Pair type"] = df["is-paired"].map({False: "NN'", True: "NN"})
+
         st.markdown(
-            "Train langs: {} · Size: {} · Seed: {} · Test lang: {}".format(
-                train_langs_str, size, seed, test_lang
+            "Train langs: {} · Size: {} · Seed: {} · Test lang: {} · ME computed: {:.1f}% · ME model: {:.1f}%".format(
+                train_langs_str,
+                size,
+                seed,
+                test_lang,
+                me_bias_mean,
+                me_bias_model,
             )
         )
         sns.scatterplot(
             data=df,
-            x="distance",
-            y="me-bias",
+            x=xlabel,
+            y=ylabel,
             ax=ax,
-            hue="word-query",
-            style="is-paired",
+            hue="Query",
+            style="Pair type",
+            markers={"NN'": "X", "NN": "o"},
             legend=use_legend,
         )
-        corr = 100 * np.corrcoef(df["distance"], df["me-bias"])[0, 1]
-        ax.set_title("ρ: {:.1f}% · NF: {:.1f}%".format(corr, df["me-bias"].mean()))
-        ax.axhline(50, color="red", linewidth=1, linestyle="--")
+        ax.set_title("{}\nNF: {:.1f}%".format(model_str, me_bias_model))
+        ax.axhline(50, color="black", linewidth=1, linestyle="--")
 
     # train_langs = ["en"]
     # seed = "c"
@@ -446,11 +483,16 @@ def show_across_words_mismatched():
     # test_lang = "en"
     # do1(train_langs, size, seed, test_lang)
 
+    sns.set(style="whitegrid", font="Arial", context="poster")
     fig, axs = plt.subplots(figsize=(12, 6), ncols=2, nrows=1, sharey=True)
-    do1(["en", "nl"], "md", "d", "nl", axs[0])
-    do1(["en", "nl"], "md", "b", "nl", axs[1], use_legend=True)
-    sns.move_legend(axs[1], "upper left", bbox_to_anchor=(1, 1))
+    do1(["en"], "md", "c", "en", axs[0])
+    do1(["en", "nl"], "md", "d", "en", axs[1], use_legend=True)
+    sns.move_legend(axs[1], "upper left", bbox_to_anchor=(1, 1), ncols=2, fontsize=14)
+
+    fig.set_tight_layout(True)
     st.pyplot(fig)
+
+    fig.savefig("output/interspeech25/me-vs-distance.pdf")
 
 
 def show_across_words():
@@ -464,7 +506,7 @@ def show_across_words():
     #     do1(None, "sm", seed, "en")
 
 
-def show_across_models():
+def show_across_models(test_lang="en"):
     WORDS = {
         "seen": WORDS_SEEN,
         "unseen": WORDS_UNSEEN,
@@ -481,36 +523,31 @@ def show_across_models():
         embs_mean = embs_mean / np.linalg.norm(embs_mean)
         return np.mean(np.linalg.norm(embs_word - embs_mean, axis=1))
 
-    def get_me_from_file(train_langs, size, seed, test_lang):
-        model_name = "{}_links-{}_size-{}".format(
-            "-".join(train_langs),
-            "no",
-            size,
+    def compute_modality_distance_seen(data, embs):
+        # _, embs_image = filter_data(data, embs, ["image"], ["seen"])
+        # _, embs_audio = filter_data(data, embs, ["audio"], ["seen"])
+        # embs_image_centroid = np.mean(embs_image, axis=0)
+        # embs_audio_centroid = np.mean(embs_audio, axis=0)
+        embs_image, words_image = aggregate_by_word(
+            *filter_data(data, embs, ["image"], ["seen"])
         )
-        test_lang_long = LANG_SHORT_TO_LONG[test_lang]
-
-        folder = NAMES[model_name].format(seed)
-        path = f"output/{folder}"
-        results = SummaryReader(path)
-        scalars = results.scalars
-        col1 = "valid/loss"
-
-        col_nf = f"test/{test_lang_long}/accuracy-novel-familiar"
-        if col_nf not in scalars["tag"].unique():
-            col_nf = f"test/accuracy-novel-familiar"
-
-        df = scalars[scalars["tag"].isin([col1, col_nf])]
-        df = df.pivot(index="step", columns="tag", values="value")
-        best_epoch = df[col1].idxmin()
-
-        return 100 * df.loc[best_epoch, col_nf]
-
-    def compute_modality_distance(data, embs):
-        embs_image, words_image = aggregate_by_word(*filter_data(data, embs, ["image"], ["unseen"]))
-        embs_audio, words_audio = aggregate_by_word(*filter_data(data, embs, ["audio"], ["unseen"]))
+        embs_audio, words_audio = aggregate_by_word(
+            *filter_data(data, embs, ["audio"], ["seen"])
+        )
         assert words_image == words_audio
         dists = np.linalg.norm(embs_image - embs_audio, axis=1)
         return np.mean(dists)
+
+    def compute_modality_distance_unseen(data, embs):
+        _, embs_image = filter_data(data, embs, ["image"], ["unseen"])
+        _, embs_audio = filter_data(data, embs, ["audio"], ["unseen"])
+        dists = pairwise_distances(embs_image, embs_audio)
+        return np.mean(dists)
+        # embs_image, words_image = aggregate_by_word(*filter_data(data, embs, ["image"], ["unseen"]))
+        # embs_audio, words_audio = aggregate_by_word(*filter_data(data, embs, ["audio"], ["unseen"]))
+        # assert words_image == words_audio
+        # dists = np.linalg.norm(embs_image - embs_audio, axis=1)
+        # return np.mean(dists)
 
     def get_result(train_langs, size, seed, test_lang):
         data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
@@ -521,31 +558,40 @@ def show_across_models():
         }
         return {
             **result,
-            "dist": compute_modality_distance(data, embs),
-            "me-bias": get_me_from_file(train_langs, size, seed, test_lang),
+            "dist-unseen": compute_modality_distance_unseen(data, embs),
+            "dist-seen": compute_modality_distance_seen(data, embs),
+            "me-bias": get_results_seed(train_langs, "no", size, test_lang, seed)["NF"],
         }
+
+    LANGS = ["en", "fr", "nl"]
+    train_langs_combinations = [tuple(sorted(set([test_lang, lang]))) for lang in LANGS]
+    train_langs_combinations = sorted(train_langs_combinations, key=lambda x: len(x))
 
     results = [
         {
-            **get_result(train_langs, size, seed, "en"),
+            **get_result(train_langs, size, seed, test_lang),
             "size": size,
             "seed": seed,
             "train-langs": "-".join(train_langs),
         }
-        for train_langs in [["en"], ["en", "fr"], ["en", "nl"]]
-        for size in "sm md lg".split()
+        for train_langs in train_langs_combinations
+        # for size in "sm md lg".split()
+        for size in ["md"]
         for seed in "abcde"
     ]
 
     df = pd.DataFrame(results)
-    st.write(df)
-    df.to_csv("output/show-explain-me/me-bias-across-models.csv", index=False)
 
     df["spread-image-ratio"] = df["spread-image-unseen"] / df["spread-image-seen"]
     df["spread-audio-ratio"] = df["spread-audio-unseen"] / df["spread-audio-seen"]
+    df["dist-ratio"] = df["dist-unseen"] / df["dist-seen"]
+
+    # st.write(df)
+    st.write(df.groupby(["size", "train-langs"]).mean())
+    df.to_csv("output/show-explain-me/me-bias-across-models.csv", index=False)
 
     fig, axs = plt.subplots(ncols=3, nrows=1, figsize=(14, 4), sharey=True)
-    for i, x in enumerate(["spread-image-ratio", "spread-audio-ratio", "dist"]):
+    for i, x in enumerate(["spread-image-ratio", "spread-audio-ratio", "dist-ratio"]):
         sns.scatterplot(
             data=df,
             x=x,
@@ -560,6 +606,160 @@ def show_across_models():
 
     sns.move_legend(axs[2], "upper left", bbox_to_anchor=(1, 1))
     st.pyplot(fig)
+
+
+def show_across_models_nn_vs_nf(test_lang):
+    size = "md"
+    # seed = "c"
+    # test_lang = "en"
+
+    LANGS = ["en", "fr", "nl"]
+    train_langs_combinations = [tuple(sorted(set([test_lang, lang]))) for lang in LANGS]
+    train_langs_combinations = sorted(train_langs_combinations, key=lambda x: len(x))
+
+    def compute_modality_distance(
+        data,
+        embs,
+        words_audio="unseen",
+        words_image="unseen",
+    ):
+        _, embs_audio = filter_data(data, embs, ["audio"], [words_audio])
+        _, embs_image = filter_data(data, embs, ["image"], [words_image])
+        dists = pairwise_distances(embs_image, embs_audio)
+        dists = dists.flatten()[::3]
+        return dists
+
+    def do1(train_langs, seed):
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        return [
+            {"distance": d, "pair-type": f"unseen–{i}"}
+            for i in ["seen", "unseen"]
+            for d in compute_modality_distance(data, embs, i)
+        ]
+
+    data = [
+        {**datum, "train-langs": "-".join(train_langs), "seed": seed}
+        for train_langs in train_langs_combinations
+        for seed in "abcde"
+        for datum in do1(train_langs, seed)
+    ]
+    df = pd.DataFrame(data)
+
+    # fig, ax = plt.subplots(figsize=(6, 4))
+    # sns.stripplot(df, x="distance", y="pair-type", hue="train-langs", ax=ax, color=".3", size=4)
+
+    fig = sns.catplot(
+        df,
+        kind="box",
+        x="distance",
+        col="train-langs",
+        hue="pair-type",
+        y="seed",
+    )
+    sns.move_legend(fig, "upper left", bbox_to_anchor=(1, 1))
+    st.pyplot(fig)
+
+
+def show_across_models_nn_vs_nf_2():
+    sns.set(style="whitegrid", font="Arial", context="poster")
+
+    size = "md"
+    test_lang = "en"
+    seed = "c"
+
+    LANGS = ["en", "fr", "nl"]
+    train_langs_combinations = [tuple(sorted(set([test_lang, lang]))) for lang in LANGS]
+    train_langs_combinations = sorted(train_langs_combinations, key=lambda x: len(x))
+
+    def compute_distances_all(embs1, embs2, *args):
+        dists = pairwise_distances(embs1, embs2)
+        return dists.flatten()
+
+    def compute_distances_matched(embs1, embs2, data1, data2):
+        def get_idxs(data, word):
+            idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
+            return np.array(idxs)
+
+        def compute_distances_all_(word):
+            idxs1 = get_idxs(data1, word)
+            idxs2 = get_idxs(data2, word)
+            return compute_distances_all(embs1[idxs1], embs2[idxs2])
+
+        words = sorted(set([datum["word-en"] for datum in data1]))
+        dists = [compute_distances_all_(word) for word in words]
+        return np.concatenate(dists)
+
+    PAIR_TYPES = {
+        "NF": {
+            "words_audio": "seen",
+            "words_image": "unseen",
+            "compute_distances": compute_distances_all,
+        },
+        "NN": {
+            "words_audio": "unseen",
+            "words_image": "unseen",
+            "compute_distances": compute_distances_matched,
+        },
+        "NN'": {
+            "words_audio": "unseen",
+            "words_image": "unseen",
+            "compute_distances": compute_distances_all,
+        },
+    }
+
+    def compute_modality_distance(
+        data,
+        embs,
+        words_audio="unseen",
+        words_image="unseen",
+        compute_distances=compute_distances_all,
+    ):
+        data_audio, embs_audio = filter_data(data, embs, ["audio"], [words_audio])
+        data_image, embs_image = filter_data(data, embs, ["image"], [words_image])
+        return compute_distances(embs_audio, embs_image, data_audio, data_image)
+
+    def do1(train_langs, seed):
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        return [
+            {"distance": d, "pair-type": p}
+            for p in PAIR_TYPES
+            for d in compute_modality_distance(data, embs, **PAIR_TYPES[p])
+        ]
+
+    data = [
+        {**datum, "train-langs": "-".join(train_langs), "seed": seed}
+        for train_langs in train_langs_combinations
+        # for seed in "abcde"
+        for datum in do1(train_langs, seed)
+    ]
+    df = pd.DataFrame(data)
+
+    # fig, ax = plt.subplots(figsize=(6, 4))
+    # sns.stripplot(df, x="distance", y="pair-type", hue="train-langs", ax=ax, color=".3", size=4)
+
+    def map_langs(lang_str):
+        langs_long = [LANG_SHORT_TO_LONG[lang] for lang in lang_str.split("-")]
+        langs_long = [lang.capitalize() for lang in langs_long]
+        return ", ".join(langs_long)
+
+    fig = sns.catplot(
+        df,
+        kind="box",
+        x="distance",
+        # row="seed",
+        col="train-langs",
+        y="pair-type",
+        height=4,
+    )
+
+    for ax in fig.axes.flat:
+        _, langs_str = ax.get_title().split(" = ")
+        ax.set_title(map_langs(langs_str))
+        ax.set_xlabel("Distance")
+        ax.set_ylabel("")
+    sns.move_legend(fig, "upper left", bbox_to_anchor=(1, 1))
+    st.pyplot(fig)
+    fig.savefig("output/interspeech25/nf-nn-nn1.pdf")
 
 
 def show_across_models_scaling_translation():
@@ -580,8 +780,12 @@ def show_across_models_scaling_translation():
         return data, embs1
 
     def transform_embs_all(data, embs, α, γ):
-        data_audio_unseen, embs_audio_unseen = filter_data(data, embs, ["audio"], ["unseen"])
-        data_image_unseen, embs_image_unseen = filter_data(data, embs, ["image"], ["unseen"])
+        data_audio_unseen, embs_audio_unseen = filter_data(
+            data, embs, ["audio"], ["unseen"]
+        )
+        data_image_unseen, embs_image_unseen = filter_data(
+            data, embs, ["image"], ["unseen"]
+        )
         data_audio_seen, embs_audio_seen = filter_data(data, embs, ["audio"], ["seen"])
         data_image_seen, embs_image_seen = filter_data(data, embs, ["image"], ["seen"])
 
@@ -590,14 +794,22 @@ def show_across_models_scaling_translation():
         # var_audio_seen = compute_variance(embs_audio_seen)
         # var_image_seen = compute_variance(embs_image_seen)
 
-        data_audio_unseen, embs_audio_unseen = scale_embs(data_audio_unseen, embs_audio_unseen, α)
-        data_image_unseen, embs_image_unseen = scale_embs(data_image_unseen, embs_image_unseen, α)
+        data_audio_unseen, embs_audio_unseen = scale_embs(
+            data_audio_unseen, embs_audio_unseen, α
+        )
+        data_image_unseen, embs_image_unseen = scale_embs(
+            data_image_unseen, embs_image_unseen, α
+        )
 
         ma0 = embs_audio_unseen.mean(0)
         mi0 = embs_image_unseen.mean(0)
 
-        data_audio_unseen, embs_audio_unseen = translate_embs(data_audio_unseen, embs_audio_unseen, γ)
-        data_image_unseen, embs_image_unseen = translate_embs(data_image_unseen, embs_image_unseen, γ)
+        data_audio_unseen, embs_audio_unseen = translate_embs(
+            data_audio_unseen, embs_audio_unseen, γ
+        )
+        data_image_unseen, embs_image_unseen = translate_embs(
+            data_image_unseen, embs_image_unseen, γ
+        )
 
         ma1 = embs_audio_unseen.mean(0)
         mi1 = embs_image_unseen.mean(0)
@@ -605,8 +817,13 @@ def show_across_models_scaling_translation():
         print(np.linalg.norm(ma0 - ma1))
         print(np.linalg.norm(mi0 - mi1))
 
-        data1 = data_audio_unseen + data_image_unseen + data_audio_seen + data_image_seen
-        embs1 = np.concatenate([embs_audio_unseen, embs_image_unseen, embs_audio_seen, embs_image_seen], axis=0)
+        data1 = (
+            data_audio_unseen + data_image_unseen + data_audio_seen + data_image_seen
+        )
+        embs1 = np.concatenate(
+            [embs_audio_unseen, embs_image_unseen, embs_audio_seen, embs_image_seen],
+            axis=0,
+        )
 
         # β1_audio = var_audio_seen / var_audio_unseen
         # β1_image = var_image_seen / var_image_unseen
@@ -663,7 +880,9 @@ def show_across_models_scaling_translation():
     # st.write(df)
     fig, ax = plt.subplots(ncols=1, sharey=True, figsize=(5, 4))
     sns.scatterplot(data=df, x="γ", y="me-bias", hue="size", ax=ax)
-    sns.lineplot(data=df, x="γ", y="me-bias", hue="size", units="seed", estimator=None, ax=ax)
+    sns.lineplot(
+        data=df, x="γ", y="me-bias", hue="size", units="seed", estimator=None, ax=ax
+    )
     sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
     # β = df["β1"].mean()
     # ax.axvline(β, color="blue", linewidth=1, linestyle="--")
@@ -700,7 +919,9 @@ def show_across_models_random():
         embs1 = embs1 / np.linalg.norm(embs1, axis=1)[:, np.newaxis]
         return data_unseen, embs1
 
-    def generate_mean_seen_cov_seen_scaled(data_unseen, embs_unseen, data_seen, embs_seen):
+    def generate_mean_seen_cov_seen_scaled(
+        data_unseen, embs_unseen, data_seen, embs_seen
+    ):
         mu_seen = np.mean(embs_seen, axis=0)
         cov_seen = np.cov(embs_seen.T)
 
@@ -715,7 +936,7 @@ def show_across_models_random():
 
         print(var_unseen)
         print(compute_variance(embs1))
-        
+
         pdb.set_trace()
 
         embs1 = embs1 / np.linalg.norm(embs1, axis=1)[:, np.newaxis]
@@ -729,8 +950,12 @@ def show_across_models_random():
         return data_unseen, embs1
 
     def generate_all(data, embs, generate_type):
-        data_audio_unseen, embs_audio_unseen = filter_data(data, embs, ["audio"], ["unseen"])
-        data_image_unseen, embs_image_unseen = filter_data(data, embs, ["image"], ["unseen"])
+        data_audio_unseen, embs_audio_unseen = filter_data(
+            data, embs, ["audio"], ["unseen"]
+        )
+        data_image_unseen, embs_image_unseen = filter_data(
+            data, embs, ["image"], ["unseen"]
+        )
 
         data_audio_seen, embs_audio_seen = filter_data(data, embs, ["audio"], ["seen"])
         data_image_seen, embs_image_seen = filter_data(data, embs, ["image"], ["seen"])
@@ -738,11 +963,20 @@ def show_across_models_random():
         # data_audio_unseen, embs_audio_unseen = generate_random(data_audio_unseen, embs_audio_unseen)
         # data_image_unseen, embs_image_unseen = generate_random(data_image_unseen, embs_image_unseen)
         generate_random = GENERATE_TYPES[generate_type]
-        data_audio_unseen, embs_audio_unseen = generate_random(data_audio_unseen, embs_audio_unseen, data_audio_seen, embs_audio_seen)
-        data_image_unseen, embs_image_unseen = generate_random(data_image_unseen, embs_image_unseen, data_image_seen, embs_image_seen)
+        data_audio_unseen, embs_audio_unseen = generate_random(
+            data_audio_unseen, embs_audio_unseen, data_audio_seen, embs_audio_seen
+        )
+        data_image_unseen, embs_image_unseen = generate_random(
+            data_image_unseen, embs_image_unseen, data_image_seen, embs_image_seen
+        )
 
-        data1 = data_audio_unseen + data_image_unseen + data_audio_seen + data_image_seen
-        embs1 = np.concatenate([embs_audio_unseen, embs_image_unseen, embs_audio_seen, embs_image_seen], axis=0)
+        data1 = (
+            data_audio_unseen + data_image_unseen + data_audio_seen + data_image_seen
+        )
+        embs1 = np.concatenate(
+            [embs_audio_unseen, embs_image_unseen, embs_audio_seen, embs_image_seen],
+            axis=0,
+        )
 
         return data1, embs1
 
@@ -799,7 +1033,7 @@ def show_across_models_random():
     # sns.scatterplot(data=df, x="γ", y="me-bias", hue="size", ax=ax)
     # sns.lineplot(data=df, x="γ", y="me-bias", hue="size", units="seed", estimator=None, ax=ax)
     # fig = sns.catplot(data=df, x="size", y="me-bias", col="to-generate")
-    
+
     sns.stripplot(data=df, x="me-bias", y="sampling", hue="size", ax=ax)
     sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
     # ax.tick_params(axis="x", rotation=45)
@@ -807,8 +1041,12 @@ def show_across_models_random():
 
 
 if __name__ == "__main__":
+    st.set_page_config(layout="wide")
     # show_across_words()
     show_across_words_mismatched()
-    # show_across_models()
+    # for t in ["en", "fr", "nl"]:
+    #     show_across_models_nn_vs_nf(t)
+    #     show_across_models(t)
+    # show_across_models_nn_vs_nf_2()
     # show_across_models_scaling_translation()
     # show_across_models_random()
