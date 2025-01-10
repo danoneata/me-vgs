@@ -64,7 +64,7 @@ def align(emb1, emb2, meta1, meta2, lang):
     return emb_1_out, error_out
 
 
-def add_texts(ax, df):
+def add_texts(ax, df, fontsize=10, key=["word", "lang"]):
     def find_closest_point(df, row):
         # df_ = df[df.word == row.word]
         df_ = df.loc[df.word == row.word]
@@ -75,7 +75,7 @@ def add_texts(ax, df):
         df_ = df[df.word == row.word]
         return df_.sample(1).iloc[0][["x", "y"]].values
 
-    locs = df.groupby(["word", "lang"])["x", "y"].mean()
+    locs = df.groupby(key)["x", "y"].mean()
     locs = locs.reset_index()
     texts = [
         ax.text(
@@ -84,7 +84,7 @@ def add_texts(ax, df):
             row.word,
             ha="center",
             va="center",
-            size=10,
+            size=fontsize,
         )
         for _, row in locs.iterrows()
     ]
