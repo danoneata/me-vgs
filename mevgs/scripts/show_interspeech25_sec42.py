@@ -16,6 +16,9 @@ from sklearn.metrics import classification_report
 from sklearn.manifold import TSNE, Isomap
 from sklearn.decomposition import PCA
 
+from mevgs.data import AudioFeaturesLoader
+from mevgs.utils import read_json
+
 from mevgs.scripts.show_explain_me import (
     load_data_and_embs_all,
     WORDS_SEEN,
@@ -31,6 +34,11 @@ from mevgs.scripts.show_crosslingual_audio_alignment import (
 sns.set(context="poster", style="white", font="Arial")
 
 LANG_LONG_TO_SHORT = {v: k for k, v in LANG_SHORT_TO_LONG.items()}
+
+WORDS = {
+    "seen": set(WORDS_SEEN),
+    "unseen": set(WORDS_UNSEEN),
+}
 
 
 def filter(data, embs, to_keep):
@@ -338,7 +346,7 @@ def do2(train_langs, size, seed):
     fig.savefig("output/interspeech25/embeddings-audio-vs-image.pdf")
 
 
-def evaluate_translation():
+def evaluate_translation(embeddings_type="out"):
     size = "md"
 
     def l2_normalize(X):
@@ -363,14 +371,41 @@ def evaluate_translation():
         print()
         return 100 * ncm.score(X_te, y_te)
 
-    def evaluate_model(train_langs, seed, type_):
-        words = {
-            "seen": set(WORDS_SEEN),
-            "unseen": set(WORDS_UNSEEN),
-        }
+    def load_data_and_embs_inp_all(langs, type_):
+        langs_long = [LANG_SHORT_TO_LONG[lang] for lang in langs]
+        path = f"output/show-model-comparison/audio-data-ss-30.json"
+        data = read_json(path)
+        data = [
+            datum
+            for datum in data
+            if datum["lang"] in langs_long and datum["word-en"] in WORDS[type_]
+        ]
+        loader = AudioFeaturesLoader("wavlm-base-plus", "test", langs_long)
+        embs = [loader(datum) for datum in data]
+        embs = [emb.mean(axis=1) for emb in embs]
+        embs = np.stack(embs)
+        return data, embs
 
+    def evaluate_embs_inp(train_langs, type_):
+        data, embs = load_data_and_embs_inp_all(train_langs, type_)
+        return [
+            {
+                "src": train_langs[0],
+                "tgt": train_langs[1],
+                "type_": type_,
+                "accuracy": eval1(data, embs, train_langs[0], train_langs[1]),
+            },
+            {
+                "src": train_langs[1],
+                "tgt": train_langs[0],
+                "type_": type_,
+                "accuracy": eval1(data, embs, train_langs[1], train_langs[0]),
+            },
+        ]
+
+    def evaluate_embs_out_1(train_langs, seed, type_):
         def to_keep(datum, modality, langs):
-            cond1 = datum["word-en"] in words[type_]
+            cond1 = datum["word-en"] in WORDS[type_]
             cond2 = modality == "image" or LANG_LONG_TO_SHORT[datum["lang"]] in langs
             return cond1 and cond2
 
@@ -396,12 +431,21 @@ def evaluate_translation():
             },
         ]
 
+    def evaluate_embs_out(train_langs, type_):
+        return [evaluate_embs_out_1(train_langs, seed, type_) for seed in "abcde"]
+
+    EVAL_FUNCS = {
+        "out": evaluate_embs_out,
+        "inp": evaluate_embs_inp,
+    }
+
+    eval_func = EVAL_FUNCS[embeddings_type]
+
     results = [
         r
         for train_langs in [["en", "fr"], ["en", "nl"], ["fr", "nl"]]
-        for seed in "abcde"
         for t in ["seen", "unseen"]
-        for r in evaluate_model(train_langs, seed, t)
+        for r in eval_func(train_langs, t)
     ]
     df = pd.DataFrame(results)
     df = (
@@ -409,6 +453,7 @@ def evaluate_translation():
         .agg(["mean", "std"])
         .reset_index()
     )
+    # st.write(df.pivot(index=["src", "tgt"], columns="type_").mean())
     df["accuracy"] = (
         df["mean"].round(1).astype(str) + "±" + (2 * df["std"]).round(1).astype(str)
     )
@@ -418,21 +463,18 @@ def evaluate_translation():
     st.write(df)
 
 
+def select_by_word(data, embs, word):
+    idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
+    return embs[idxs]
+
+
+def compute_var(embs):
+    C = np.cov(embs.T)
+    return np.trace(C)
+
+
 def quantify_variance_comparison():
-    WORDS = {
-        "seen": set(WORDS_SEEN),
-        "unseen": set(WORDS_UNSEEN),
-    }
-
     size = "md"
-
-    def select_by_word(data, embs, word):
-        idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
-        return embs[idxs]
-
-    def compute_var(embs):
-        C = np.cov(embs.T)
-        return np.trace(C)
 
     def compute1(train_langs, modality, seed, test_langs_idxs):
         def to_keep(datum, modality, langs):
@@ -501,21 +543,8 @@ def quantify_variance_comparison():
 
 
 def quantify_variance():
-    WORDS = {
-        "seen": set(WORDS_SEEN),
-        "unseen": set(WORDS_UNSEEN),
-    }
-
     train_langs = ["en", "nl"]
     size = "md"
-
-    def select_by_word(data, embs, word):
-        idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
-        return embs[idxs]
-
-    def compute_var(embs):
-        C = np.cov(embs.T)
-        return np.trace(C)
 
     def compute1(modality, words_type, seed, var_type):
         def to_keep(datum, modality, langs):
@@ -588,19 +617,68 @@ def quantify_variance():
     fig.savefig("output/interspeech25/variance.pdf")
 
 
+def compute_average_similarity_per_modality():
+    size = "md"
+    words_type = "seen"
+
+    def compute_average_sim(embs):
+        sims = embs @ embs.T
+        np.fill_diagonal(sims, 0)
+        return {
+            "sim-mean": sims.mean(),
+            "sim-std": sims.std(),
+        }
+
+    def compute1(modality, train_langs, seed):
+        def to_keep(datum, modality, selected_langs):
+            cond1 = datum["word-en"] in WORDS[words_type]
+            cond2 = (
+                modality == "image"
+                or LANG_LONG_TO_SHORT[datum["lang"]] in selected_langs
+            )
+            return cond1 and cond2
+
+        data, embs = filter(
+            *load_data_and_embs_all(modality, train_langs, size, seed),
+            partial(to_keep, modality=modality, selected_langs=train_langs),
+        )
+
+        norms = np.linalg.norm(embs, axis=1)
+        embs1 = embs / norms[:, None]
+
+        return compute_average_sim(embs1)
+
+    langs = ["en", "fr", "nl"]
+    train_langs_combs = [[lang] for lang in langs] + list(combinations(langs, 2))
+    results = [
+        {
+            "modality": modality,
+            "words_type": words_type,
+            "seed": seed,
+            **compute1(modality, train_langs, seed),
+        }
+        for modality in ["audio", "image"]
+        for train_langs in train_langs_combs
+        for seed in "abcde"
+    ]
+
+    df = pd.DataFrame(results)
+    st.write(df)
+    st.write(df.groupby(["modality"])["sim-mean", "sim-std"].mean())
+
 
 if __name__ == "__main__":
     st.set_page_config(layout="wide")
-    # evaluate_translation()
+    evaluate_translation("inp")
     # quantify_variance()
-    quantify_variance_comparison()
+    # quantify_variance_comparison()
+    # compute_average_similarity_per_modality()
 
     # with st.sidebar:
     #     train_langs = st.multiselect(
     #         "Languages:",
     #         ["en", "fr", "nl"],
-    #         # default=["en", "nl"],
-    #         default=["en", "fr"],
+    #         default=["en", "nl"],
     #     )
     #     size = st.selectbox("Size:", ["sm", "md", "lg"], index=1)
     #     seed = st.selectbox("Seed:", "abcde", index=2)
@@ -608,4 +686,4 @@ if __name__ == "__main__":
     # if len(train_langs) == 0:
     #     st.error("Select at least one language.")
     # else:
-    #     do1(tuple(train_langs), size, seed)
+    #     do2(tuple(train_langs), size, seed)
