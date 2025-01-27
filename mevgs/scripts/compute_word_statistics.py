@@ -2,13 +2,93 @@ from collections import Counter
 from pathlib import Path
 
 import pandas as pd
+import streamlit as st
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from mevgs.utils import read_file, read_json
 
 
+sns.set(style="whitegrid", font="Arial", context="talk")
+
+
+def show_counts():
+    FILENAMES = {
+        "seen": {
+            "audio": ["audio-train-3", "audio-valid-3"],
+            "image": ["image-train"],
+        },
+        "unseen": {
+            "audio": ["audio-test-3"],
+            "image": ["image-test"],
+        },
+    }
+
+    GROUPBY_COLS = {
+        "audio": ["word-en", "lang"],
+        "image": ["word-en"],
+    }
+
+    def get_counts(word_type, modality):
+        data = [
+            datum
+            for filename in FILENAMES[word_type][modality]
+            for datum in read_json(f"data/filelists/{filename}.json")
+        ]
+
+        cols = GROUPBY_COLS[modality]
+        df = pd.DataFrame(data)
+        df = df.groupby(cols).size().reset_index(name="count")
+        return df
+
+    dfs = {
+        (word_type, modality): get_counts(word_type, modality)
+        for word_type in ("seen", "unseen")
+        for modality in ("audio", "image")
+    }
+    # st.write(dfs[("unseen", "audio")])
+    # st.write(dfs[("unseen", "image")])
+    fig, axs = plt.subplots(ncols=2, figsize=(9, 7), sharey=True)
+    sns.barplot(
+        data=dfs[("seen", "audio")],
+        x="count",
+        y="word-en",
+        hue="lang",
+        hue_order=["english", "french", "dutch"],
+        ax=axs[0],
+    )
+    sns.barplot(
+        data=dfs[("seen", "image")],
+        x="count",
+        y="word-en",
+        width=0.3,
+        ax=axs[1],
+    )
+
+    f = 10
+    for container, number in zip(axs[0].containers, dfs[("seen", "audio")]["count"]):
+        axs[0].bar_label(container, labels=[f"{number}"], fontsize=f)
+    axs[1].bar_label(axs[1].containers[0], fontsize=f)
+
+    axs[0].set_title("Audio samples")
+    axs[1].set_title("Image samples")
+    axs[0].set_ylabel("Category")
+    axs[0].set_xlabel("Count")
+    axs[1].set_xlabel("Count")
+
+    leg = axs[0].get_legend()
+    leg.set_title("Language")
+    for t in leg.texts:
+        t.set_text(t.get_text().capitalize())
+
+    fig.set_tight_layout(True)
+    st.pyplot(fig)
+    fig.savefig("output/interspeech25/dataset-stats.pdf")
+
+
 def count_train_and_valid():
-    data_train = read_json("data/filelists/audio-train.json")
-    data_valid = read_json("data/filelists/audio-valid.json")
+    data_train = read_json("data/filelists/audio-train-3.json")
+    data_valid = read_json("data/filelists/audio-valid-3.json")
     data = data_train + data_valid
 
     data = [(datum["word-en"], datum["lang"]) for datum in data]
@@ -89,7 +169,7 @@ def compare_counts():
         for split in ("train", "valid", "test")
     }
     data2 = {
-        split: read_json(f"data/filelists/audio-{split}-2.json")
+        split: read_json(f"data/filelists/audio-{split}-3.json")
         for split in ("train", "valid", "test")
     }
     words = {
@@ -113,6 +193,8 @@ def compare_counts():
 
 
 if __name__ == "__main__":
-    count_in_files("dutch")
+    # count_in_files("dutch")
     # compare_counts()
     # count_train_images()
+    # count_train_and_valid()
+    show_counts()
