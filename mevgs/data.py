@@ -277,6 +277,12 @@ class SimplePairedMEDataset(Dataset):
         return len(self.word_audio)
 
 
+RESAMPLE_FUNCS = {
+    "identity": lambda xs: xs,
+    "double": lambda xs: [x for x in xs for _ in range(2)],
+}
+
+
 class PairedMEDataset(Dataset):
     def __init__(
         self,
@@ -288,6 +294,7 @@ class PairedMEDataset(Dataset):
         feature_type_image: str,
         # num_word_repeats: int,
         to_fix_validation_samples: bool = True,
+        resample: str = "identity",
     ):
         super(PairedMEDataset).__init__()
 
@@ -308,6 +315,8 @@ class PairedMEDataset(Dataset):
             for word, audios in self.dataset.word_to_audios.items()
             for audio in audios
         ]
+        if split == "train":
+            self.word_audio = RESAMPLE_FUNCS[resample](self.word_audio)
         self.word_audio = sorted(self.word_audio, key=lambda x: x[0])
         self.load_audio = AudioFeaturesLoader(feature_type_audio, split, langs)
         self.load_image = get_image_loader(feature_type_image, split)

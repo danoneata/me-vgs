@@ -1423,3 +1423,50 @@ for langs in [("english", ), ("english", "french"), ("english", "dutch")]:
             },
         },
     }
+
+
+size = "md"
+emb_dim = SIZES[size]
+
+for lang in "english french dutch".split():
+    for seed, v in enumerate("abcde"):
+        key = "2x{}_size-{}_seed-{}".format(LANG_SHORT[lang], size, v)
+        CONFIGS[key] = {
+            "seed": seed,
+            "device": "cuda",
+            "max_epochs": 24,
+            "warmup_epochs": 4,
+            "n_saved": 5,
+            "log_every_iters": 5,
+            "optimizer": {
+                "lr": 2e-4,
+                "weight_decay": 5e-7,
+            },
+            "data": {
+                "feature_type_audio": "wavlm-base-plus",
+                "feature_type_image": "dino-resnet50",
+                "langs": (lang,),
+                "num_pos": 1,
+                "num_neg": 11,
+                "num_workers": 12,
+                "batch_size": 60,
+                "resample": "double",
+            },
+            "model": {
+                "model_name": "clip",
+                "embed_dim": emb_dim,
+                "audio_encoder_kwargs": {
+                    "type": "transformer",
+                    "input_dim": 768,
+                    "width": emb_dim,
+                },
+                "image_encoder_kwargs": {
+                    "input_dim": 2048,
+                    "width": emb_dim,
+                    "backbone_type": "identity",
+                    "to_freeze_backbone": None,
+                    "use_pretrained_backbone": None,
+                },
+            },
+        }
+
