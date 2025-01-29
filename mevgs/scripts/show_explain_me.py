@@ -173,7 +173,7 @@ def compute_seen_word_distances(data, embs):
     return distances
 
 
-def load_data_and_embs_all_1(train_langs, size, seed, test_lang):
+def load_data_and_embs_all_1(train_langs, size, seed, test_langs):
     config = {
         "train_langs": train_langs,
         "size": size,
@@ -182,8 +182,8 @@ def load_data_and_embs_all_1(train_langs, size, seed, test_lang):
     image_data, embs_image = load_data_and_embs_all("image", **config)
     audio_data, embs_audio = load_data_and_embs_all("audio", **config)
 
-    test_lang_long = LANG_SHORT_TO_LONG[test_lang]
-    idxs = [i for i, datum in enumerate(audio_data) if datum["lang"] == test_lang_long]
+    test_langs_long = [LANG_SHORT_TO_LONG[test_lang] for test_lang in test_langs]
+    idxs = [i for i, datum in enumerate(audio_data) if datum["lang"] in test_langs_long]
     audio_data = [datum for i, datum in enumerate(audio_data) if i in idxs]
     embs_audio = embs_audio[idxs]
 
@@ -269,7 +269,7 @@ def cumulative_residual_variance_2(y_vecs, x_vecs):
 
 
 def do1(train_langs, size, seed, test_lang):
-    data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+    data, embs = load_data_and_embs_all_1(train_langs, size, seed, [test_lang])
 
     train_langs_str = "-".join(train_langs) if train_langs else "random"
     config_name = f"{train_langs_str}_{size}_{seed}_{test_lang}"
@@ -342,6 +342,7 @@ def do1(train_langs, size, seed, test_lang):
 
 def show_across_words_mismatched():
     import random
+
     random.seed(42)
 
     def compute_me_mismatched_pair(data, embs, word_query, word_positive):
@@ -416,7 +417,7 @@ def show_across_words_mismatched():
         ]
 
     def do1(train_langs, size, seed, test_lang, ax, use_legend=False):
-        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, [test_lang])
 
         train_langs_str = "-".join(train_langs) if train_langs else "random"
         config_name = f"{train_langs_str}_{size}_{seed}_{test_lang}"
@@ -550,7 +551,7 @@ def show_across_models(test_lang="en"):
         # return np.mean(dists)
 
     def get_result(train_langs, size, seed, test_lang):
-        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, [test_lang])
         result = {
             f"spread-{m}-{t}": compute_spread(data, embs, m, t)
             for m in ["image", "audio"]
@@ -630,7 +631,7 @@ def show_across_models_nn_vs_nf(test_lang):
         return dists
 
     def do1(train_langs, seed):
-        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, [test_lang])
         return [
             {"distance": d, "pair-type": f"unseen–{i}"}
             for i in ["seen", "unseen"]
@@ -671,25 +672,43 @@ def show_across_models_nn_vs_nf_2():
     train_langs_combinations = [tuple(sorted(set([test_lang, lang]))) for lang in LANGS]
     train_langs_combinations = sorted(train_langs_combinations, key=lambda x: len(x))
 
+    def get_idxs(data, word):
+        idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
+        return np.array(idxs)
+
     def compute_distances_all(embs1, embs2, *args):
         dists = pairwise_distances(embs1, embs2)
         return dists.flatten()
 
+    def compute_distances_words(embs1, embs2, data1, data2, word1, word2):
+        idxs1 = get_idxs(data1, word1)
+        idxs2 = get_idxs(data2, word2)
+        return compute_distances_all(embs1[idxs1], embs2[idxs2])
+
     def compute_distances_matched(embs1, embs2, data1, data2):
-        def get_idxs(data, word):
-            idxs = [i for i, datum in enumerate(data) if datum["word-en"] == word]
-            return np.array(idxs)
-
-        def compute_distances_all_(word):
-            idxs1 = get_idxs(data1, word)
-            idxs2 = get_idxs(data2, word)
-            return compute_distances_all(embs1[idxs1], embs2[idxs2])
-
         words = sorted(set([datum["word-en"] for datum in data1]))
-        dists = [compute_distances_all_(word) for word in words]
+        dists = [
+            compute_distances_words(embs1, embs2, data1, data2, word, word)
+            for word in words
+        ]
+        return np.concatenate(dists)
+
+    def compute_distances_mismatched(embs1, embs2, data1, data2):
+        words1 = sorted(set([datum["word-en"] for datum in data1]))
+        words2 = sorted(set([datum["word-en"] for datum in data2]))
+        dists = [
+            compute_distances_words(embs1, embs2, data1, data2, word1, word2)
+            for word1, word2 in product(words1, words2)
+            if word1 != word2
+        ]
         return np.concatenate(dists)
 
     PAIR_TYPES = {
+        "FF'": {
+            "words_audio": "seen",
+            "words_image": "seen",
+            "compute_distances": compute_distances_mismatched,
+        },
         "NF": {
             "words_audio": "seen",
             "words_image": "unseen",
@@ -719,7 +738,7 @@ def show_across_models_nn_vs_nf_2():
         return compute_distances(embs_audio, embs_image, data_audio, data_image)
 
     def do1(train_langs, seed):
-        data, embs = load_data_and_embs_all_1(train_langs, size, seed, test_lang)
+        data, embs = load_data_and_embs_all_1(train_langs, size, seed, [test_lang])
         return [
             {"distance": d, "pair-type": p}
             for p in PAIR_TYPES
@@ -747,9 +766,11 @@ def show_across_models_nn_vs_nf_2():
         kind="box",
         x="distance",
         # row="seed",
-        col="train-langs",
+        row="train-langs",
+        # col="train-langs",
         y="pair-type",
-        height=4,
+        height=3.5,
+        aspect=2.5,
     )
 
     for ax in fig.axes.flat:
@@ -759,7 +780,7 @@ def show_across_models_nn_vs_nf_2():
         ax.set_ylabel("")
     sns.move_legend(fig, "upper left", bbox_to_anchor=(1, 1))
     st.pyplot(fig)
-    fig.savefig("output/interspeech25/nf-nn-nn1.pdf")
+    fig.savefig("output/interspeech25/nf-nn-nn1-v3.pdf")
 
 
 def show_across_models_scaling_translation():
@@ -1043,10 +1064,10 @@ def show_across_models_random():
 if __name__ == "__main__":
     st.set_page_config(layout="wide")
     # show_across_words()
-    show_across_words_mismatched()
+    # show_across_words_mismatched()
     # for t in ["en", "fr", "nl"]:
     #     show_across_models_nn_vs_nf(t)
     #     show_across_models(t)
-    # show_across_models_nn_vs_nf_2()
+    show_across_models_nn_vs_nf_2()
     # show_across_models_scaling_translation()
     # show_across_models_random()
