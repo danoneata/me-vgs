@@ -54,13 +54,13 @@ def get_result(train_langs, has_links, model_size, test_lang):
     nf_mean = df["NF"].mean()
     ff_mean = df["FF"].mean()
 
-    # nf_std = 2 * df["NF"].std()
-    # ff_std = 2 * df["FF"].std()
+    nf_std = 2 * df["NF"].std()
+    ff_std = 2 * df["FF"].std()
 
     # template = "{:.1f}({:.1f})"
 
-    nf_std = df["NF"].std()
-    ff_std = df["FF"].std()
+    # nf_std = df["NF"].std()
+    # ff_std = df["FF"].std()
 
     template = "{:.1f}±{:.1f}"
    
@@ -69,8 +69,8 @@ def get_result(train_langs, has_links, model_size, test_lang):
         "has-links": has_links,
         "model-size": model_size,
         "test-lang": test_lang,
-        "NF": template.format(nf_mean, nf_std),
         "FF": template.format(ff_mean, ff_std),
+        "NF": template.format(nf_mean, nf_std),
     }
 
 
@@ -85,12 +85,13 @@ if __name__ == "__main__":
         ]
 
     results = [
-        get_result(train_langs, "no", "lg", test_lang)
+        get_result(train_langs, "no", "md", test_lang)
         for test_lang in LANGS
         for train_langs in get_train_langs_combinations(test_lang)
     ]
     df = pd.DataFrame(results)
     print(df)
+    print(df.to_csv())
 
     # for s in "sm md lg".split():
     #     print(get_result(("fr", "nl"), "no", s, "fr"))
