@@ -745,23 +745,31 @@ def quantify_variance_comparison():
     st.pyplot(fig)
 
 
-def compute_variance_1(train_langs, size, modality, words_type, seed, var_type):
+def compute_variance_1(train_langs, size, modality, words_type, seed, var_type, test_langs=None):
     def to_keep(datum, modality, langs):
         cond1 = datum["word-en"] in WORDS[words_type]
         cond2 = modality == "image" or LANG_LONG_TO_SHORT[datum["lang"]] in langs
         return cond1 and cond2
 
+    test_langs = test_langs or train_langs
     data, embs = filter(
         *load_data_and_embs_all(modality, train_langs, size, seed),
         partial(to_keep, modality=modality, langs=train_langs),
     )
 
+    # if modality == "audio" and words_type == "unseen":
+    #     dists = np.linalg.norm(embs[:, None] - embs, axis=2)
+    #     idxs = np.triu_indices(len(embs), k=1)
+    #     dists = dists[idxs]
+    #     print(dists.min())
+    #     pdb.set_trace()
+
     if var_type == "full":
         return compute_var(embs)
     elif var_type == "concept":
-        vars = [
-            compute_var(select_by_word(data, embs, word)) for word in WORDS[words_type]
-        ]
+        word_to_embs = {word: select_by_word(data, embs, word) for word in WORDS[words_type]}
+        # word_to_embs = {word: embs[:10] for word, embs in word_to_embs.items()}
+        vars = [compute_var(embs1) for embs1 in word_to_embs.values()]
         return np.mean(vars)
     else:
         raise ValueError("Invalid var_type")
@@ -835,7 +843,12 @@ def quantify_variance_multi():
                 "seed": seed,
                 "var_type": var_type,
                 "value": compute_variance_1(
-                    train_langs, "md", modality, words_type, seed, var_type
+                    train_langs,
+                    "md",
+                    modality,
+                    words_type,
+                    seed,
+                    var_type,
                 ),
             }
             for train_langs in [("en",), ("en", "fr"), ("en", "nl")]
@@ -854,6 +867,7 @@ def quantify_variance_multi():
             "var_type": {"full": "All samples", "concept": "Within class"},
         }
     )
+    # st.write(df)
 
     kwargs = {
         "x": "modality",
@@ -955,7 +969,7 @@ if __name__ == "__main__":
     # quantify_variance(("en", ), use_legend=False)
     # quantify_variance(("en", "fr"), use_legend=False)
     # quantify_variance(("en", "nl"), use_legend=True)
-    # quantify_variance_multi()
+    quantify_variance_multi()
     # quantify_variance_comparison()
     # compute_average_similarity_per_modality()
 
@@ -973,4 +987,4 @@ if __name__ == "__main__":
     # else:
     #     do2(tuple(train_langs), size, seed)
 
-    do3(("en", "nl"), "md", "c")
+    # do3(("en", "nl"), "md", "c")
