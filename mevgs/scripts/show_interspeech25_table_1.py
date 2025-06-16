@@ -1,6 +1,8 @@
 import pdb
 import pandas as pd
+import numpy as np
 from itertools import combinations
+
 
 from tbparse import SummaryReader
 from mevgs.scripts.prepare_predictions_for_yevgen import NAMES
@@ -40,6 +42,7 @@ def get_result(train_langs, has_links, model_size, test_lang):
         df = scalars[scalars["tag"].isin([col1, col_nf, col_ff])]
         df = df.pivot(index="step", columns="tag", values="value")
         best_epoch = df[col1].idxmin()
+        # pdb.set_trace()
 
         return {
             "NF": 100 * df.loc[best_epoch, col_nf],
@@ -54,8 +57,11 @@ def get_result(train_langs, has_links, model_size, test_lang):
     nf_mean = df["NF"].mean()
     ff_mean = df["FF"].mean()
 
-    nf_std = 2 * df["NF"].std()
-    ff_std = 2 * df["FF"].std()
+    # nf_std = 2 * df["NF"].std()
+    # ff_std = 2 * df["FF"].std()
+
+    nf_se = df["NF"].std() / np.sqrt(len(df))
+    ff_se = df["FF"].std() / np.sqrt(len(df))
 
     # template = "{:.1f}({:.1f})"
 
@@ -69,8 +75,8 @@ def get_result(train_langs, has_links, model_size, test_lang):
         "has-links": has_links,
         "model-size": model_size,
         "test-lang": test_lang,
-        "FF": template.format(ff_mean, ff_std),
-        "NF": template.format(nf_mean, nf_std),
+        "FF": template.format(ff_mean, ff_se),
+        "NF": template.format(nf_mean, nf_se),
     }
 
 
