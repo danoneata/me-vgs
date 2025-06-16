@@ -1,5 +1,6 @@
 import sys
 import pandas as pd
+import numpy as np
 from mevgs.predict import CONFIGS, MODELS, evaluate_model_batched, predict_model_batched
 
 model_name_generic = sys.argv[1]
@@ -31,7 +32,10 @@ for v in "abcde":
             print(result)
             results.append(result)
 
+def standard_error(values):
+    return values.std() / np.sqrt(len(values))
+
 df = pd.DataFrame(results)
-df1 = df.groupby(["lang", "test_name"])["accuracy"].agg(["mean", "std"])
+df1 = df.groupby(["lang", "test_name"])["accuracy"].agg(["mean", standard_error])
 df1["mean-std"] = df1.apply(lambda x: "{:.1f}±{:.1f}".format(x[0], x[1]), axis=1)
 print(df1.unstack().to_csv())
